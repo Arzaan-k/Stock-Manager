@@ -34,6 +34,24 @@ const productSchema = z.object({
   stockTotal: z.number().min(0, "Stock total must be non-negative"),
   minStockLevel: z.number().min(0, "Minimum stock level must be non-negative"),
   imageUrl: z.string().url().optional().or(z.literal("")),
+  warehouseId: z.string().optional(),
+  // Extended fields
+  groupCode: z.string().optional(),
+  groupName: z.string().optional(),
+  crystalPartCode: z.string().optional(),
+  listOfItems: z.string().optional(),
+  photos: z.string().optional(), // comma/space separated URLs input; backend expects array/string handled server-side on CSV only
+  mfgPartCode: z.string().optional(),
+  importance: z.string().optional(),
+  highValue: z.string().optional(),
+  maximumUsagePerMonth: z.string().optional(),
+  sixMonthsUsage: z.string().optional(),
+  averagePerDay: z.string().optional(),
+  leadTimeDays: z.string().optional(),
+  criticalFactorOneDay: z.string().optional(),
+  units: z.string().optional(),
+  minimumInventoryPerDay: z.string().optional(),
+  maximumInventoryPerDay: z.string().optional(),
 });
 
 type ProductFormData = z.infer<typeof productSchema>;
@@ -43,11 +61,24 @@ export default function Products() {
   const [selectedCategory, setSelectedCategory] = useState("");
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
+  const [csvText, setCsvText] = useState("");
   const { toast } = useToast();
 
   const { data: products, isLoading } = useQuery({
     queryKey: ["/api/products", { search: searchTerm, category: selectedCategory }],
     queryFn: () => api.getProducts({ search: searchTerm, category: selectedCategory }).then(res => res.json()),
+  });
+
+  const importCsvMutation = useMutation({
+    mutationFn: (payload: { csv: string; warehouseId?: string }) => api.importProductsCSV(payload).then(res => res.json()),
+    onSuccess: (result) => {
+      toast({ title: `Imported ${result?.imported || 0} products` });
+      setIsImportDialogOpen(false);
+      setCsvText("");
+      queryClient.invalidateQueries({ queryKey: ["/api/products"] });
+    },
+    onError: () => toast({ title: "Failed to import CSV", variant: "destructive" }),
   });
 
   const { data: warehouses } = useQuery({
@@ -102,14 +133,48 @@ export default function Products() {
       stockTotal: 0,
       minStockLevel: 10,
       imageUrl: "",
+      warehouseId: "",
     },
   });
 
   const onSubmit = (data: ProductFormData) => {
+    // Coerce values to match backend schema
+    const toInt = (v?: string) => (v !== undefined && v !== "" ? parseInt(v) : undefined);
+    const toStr = (v?: any) => (v !== undefined && v !== null && v !== "" ? String(v) : undefined);
+    const payload: any = {
+      name: data.name,
+      description: toStr(data.description),
+      sku: data.sku,
+      type: data.type,
+      price: data.price,
+      stockTotal: data.stockTotal,
+      minStockLevel: data.minStockLevel,
+      imageUrl: toStr(data.imageUrl),
+      // extended
+      groupCode: toStr(data.groupCode),
+      groupName: toStr(data.groupName),
+      crystalPartCode: toStr(data.crystalPartCode),
+      listOfItems: toStr(data.listOfItems),
+      mfgPartCode: toStr(data.mfgPartCode),
+      importance: toStr(data.importance),
+      highValue: toStr(data.highValue),
+      maximumUsagePerMonth: toInt(data.maximumUsagePerMonth),
+      sixMonthsUsage: toInt(data.sixMonthsUsage),
+      averagePerDay: toStr(data.averagePerDay),
+      leadTimeDays: toInt(data.leadTimeDays),
+      criticalFactorOneDay: toInt(data.criticalFactorOneDay),
+      units: toStr(data.units),
+      minimumInventoryPerDay: toInt(data.minimumInventoryPerDay),
+      maximumInventoryPerDay: toInt(data.maximumInventoryPerDay),
+    };
     if (editingProduct) {
-      updateProductMutation.mutate({ id: editingProduct.id, data });
+      updateProductMutation.mutate({ id: editingProduct.id, data: payload });
     } else {
-      createProductMutation.mutate(data);
+      if (!data.warehouseId) {
+        toast({ title: "Please select a warehouse", variant: "destructive" });
+        return;
+      }
+      createProductMutation.mutate({ ...payload, warehouseId: data.warehouseId });
     }
   };
 
@@ -124,6 +189,21 @@ export default function Products() {
       stockTotal: product.stockTotal,
       minStockLevel: product.minStockLevel,
       imageUrl: product.imageUrl || "",
+      groupCode: product.groupCode || "",
+      groupName: product.groupName || "",
+      crystalPartCode: product.crystalPartCode || "",
+      listOfItems: product.listOfItems || "",
+      mfgPartCode: product.mfgPartCode || "",
+      importance: product.importance || "",
+      highValue: product.highValue || "",
+      maximumUsagePerMonth: product.maximumUsagePerMonth?.toString?.() || "",
+      sixMonthsUsage: product.sixMonthsUsage?.toString?.() || "",
+      averagePerDay: product.averagePerDay?.toString?.() || "",
+      leadTimeDays: product.leadTimeDays?.toString?.() || "",
+      criticalFactorOneDay: product.criticalFactorOneDay?.toString?.() || "",
+      units: product.units || "",
+      minimumInventoryPerDay: product.minimumInventoryPerDay?.toString?.() || "",
+      maximumInventoryPerDay: product.maximumInventoryPerDay?.toString?.() || "",
     });
   };
 
@@ -157,10 +237,55 @@ export default function Products() {
               </p>
             </div>
             <div className="flex items-center space-x-3">
-              <Button variant="outline" data-testid="button-import-csv">
-                <Upload className="w-4 h-4 mr-2" />
-                Import CSV
-              </Button>
+              <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" data-testid="button-import-csv">
+                    <Upload className="w-4 h-4 mr-2" />
+                    Import CSV
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>Import Products from CSV</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Select Warehouse (optional)</Label>
+                      <Select onValueChange={(v) => form.setValue("warehouseId", v)} value={form.watch("warehouseId") || undefined}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Select warehouse to apply initial stock" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {warehouses?.map((w: any) => (
+                            <SelectItem key={w.id} value={w.id}>
+                              {w.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>CSV Content</Label>
+                      <Textarea
+                        className="min-h-48"
+                        placeholder="Paste CSV with headers here"
+                        value={csvText}
+                        onChange={(e) => setCsvText(e.target.value)}
+                      />
+                      <p className="text-xs text-muted-foreground mt-2">Expected headers include Group Code, Group Name, Crystal Part Code, List of Items, Photos, MFG Part Code, Importance, High Value, Maximum Usage Per Month, 6 Months Usage, Average per day, Lead Time days, Critical Factor - One Day, Units, Minimum Inventory Per Day, Maximum Inventory Per Day, CURRENT STOCK AVAILABLE.</p>
+                    </div>
+                    <div className="flex justify-end space-x-2">
+                      <Button variant="outline" onClick={() => setIsImportDialogOpen(false)}>Cancel</Button>
+                      <Button
+                        onClick={() => importCsvMutation.mutate({ csv: csvText, warehouseId: form.getValues().warehouseId })}
+                        disabled={importCsvMutation.isPending || !csvText.trim()}
+                      >
+                        {importCsvMutation.isPending ? "Importing..." : "Import"}
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
               <Dialog open={isCreateDialogOpen || !!editingProduct} onOpenChange={(open) => {
                 if (!open) {
                   setIsCreateDialogOpen(false);
@@ -174,7 +299,7 @@ export default function Products() {
                     Add Product
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>
                       {editingProduct ? "Edit Product" : "Add New Product"}
@@ -233,6 +358,175 @@ export default function Products() {
                               <FormLabel>Price</FormLabel>
                               <FormControl>
                                 <Input type="number" step="0.01" placeholder="0.00" {...field} data-testid="input-product-price" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      {/* Extended business fields */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField control={form.control} name="groupCode" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Group Code</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. 001" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="groupName" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Group Name</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Daikin" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="crystalPartCode" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Crystal Part Code</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Q-001001" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="listOfItems" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>List of Items</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Daikin Reefer Unit" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="mfgPartCode" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>MFG Part Code</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. 2536721" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="importance" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Importance</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Critical" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="highValue" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>High Value</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Yes/No" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="maximumUsagePerMonth" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Maximum Usage Per Month</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="e.g. 24" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="sixMonthsUsage" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>6 Months Usage</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="e.g. 9" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="averagePerDay" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Average per day</FormLabel>
+                            <FormControl>
+                              <Input type="number" step="0.01" placeholder="e.g. 0.13" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="leadTimeDays" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Lead Time days</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="e.g. 2" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="criticalFactorOneDay" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Critical Factor - One Day</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="e.g. 2" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="units" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Units</FormLabel>
+                            <FormControl>
+                              <Input placeholder="e.g. Nos." {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="minimumInventoryPerDay" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Minimum Inventory Per Day</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="e.g. 2" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={form.control} name="maximumInventoryPerDay" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Maximum Inventory Per Day</FormLabel>
+                            <FormControl>
+                              <Input type="number" placeholder="e.g. 4" {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="warehouseId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Warehouse</FormLabel>
+                              <FormControl>
+                                <Select
+                                  value={field.value || undefined}
+                                  onValueChange={(v) => field.onChange(v)}
+                                >
+                                  <SelectTrigger className="w-full" data-testid="select-product-warehouse">
+                                    <SelectValue placeholder="Select warehouse" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {warehouses?.map((w: any) => (
+                                      <SelectItem key={w.id} value={w.id}>
+                                        {w.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
                               </FormControl>
                               <FormMessage />
                             </FormItem>
@@ -354,12 +648,12 @@ export default function Products() {
                 />
               </div>
             </div>
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <Select value={selectedCategory || 'all'} onValueChange={(v) => setSelectedCategory(v === 'all' ? '' : v)}>
               <SelectTrigger className="w-full md:w-48" data-testid="select-category">
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
+                <SelectItem value="all">All Categories</SelectItem>
                 {(categories as string[]).map((category: string) => (
                   <SelectItem key={category} value={category}>
                     {category}

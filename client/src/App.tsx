@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -11,8 +11,10 @@ import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
 import Products from "@/pages/Products";
 import Catalog from "@/pages/Catalog";
+import ProductDetail from "@/pages/ProductDetail";
 import Cart from "@/pages/Cart";
 import Orders from "@/pages/Orders";
+import OrderDetail from "@/pages/OrderDetail";
 import Warehouses from "@/pages/Warehouses";
 import WhatsApp from "@/pages/WhatsApp";
 import Analytics from "@/pages/Analytics";
@@ -24,9 +26,11 @@ function AuthenticatedRoutes() {
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/products" component={Products} />
+        <Route path="/products/:id" component={ProductDetail} />
         <Route path="/catalog" component={Catalog} />
         <Route path="/cart" component={Cart} />
         <Route path="/orders" component={Orders} />
+        <Route path="/orders/:id" component={OrderDetail} />
         <Route path="/warehouses" component={Warehouses} />
         <Route path="/whatsapp" component={WhatsApp} />
         <Route path="/analytics" component={Analytics} />
@@ -40,12 +44,15 @@ function LoginForm() {
   const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [credentials, setCredentials] = useState({ username: "", password: "" });
+  const [, navigate] = useLocation();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     try {
       await login(credentials.username, credentials.password);
+      // Force a full reload so AppRouter remounts and picks up user from localStorage
+      window.location.href = "/";
     } catch (error) {
       console.error("Login failed:", error);
     } finally {
@@ -108,7 +115,7 @@ function LoginForm() {
         </form>
         
         <div className="text-center text-sm text-muted-foreground">
-          Demo credentials: admin / password
+          Demo credentials: admin / admin
         </div>
       </div>
     </div>

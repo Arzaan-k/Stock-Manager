@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -23,6 +24,7 @@ import {
 
 export default function Orders() {
   const [statusFilter, setStatusFilter] = useState("");
+  const [, setLocation] = useLocation();
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const { toast } = useToast();
 
@@ -104,12 +106,12 @@ export default function Orders() {
               </p>
             </div>
             <div className="flex items-center space-x-3">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter || 'all'} onValueChange={(v) => setStatusFilter(v === 'all' ? '' : v)}>
                 <SelectTrigger className="w-48" data-testid="select-status-filter">
                   <SelectValue placeholder="All Statuses" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Statuses</SelectItem>
+                  <SelectItem value="all">All Statuses</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="shipped">Shipped</SelectItem>
                   <SelectItem value="delivered">Delivered</SelectItem>
@@ -143,7 +145,9 @@ export default function Orders() {
                     return (
                       <tr key={order.id} className="hover:bg-muted/50" data-testid={`row-order-${order.id}`}>
                         <td className="p-4 font-medium text-foreground" data-testid={`text-order-number-${order.id}`}>
-                          #{order.orderNumber}
+                          <Link href={`/orders/${order.id}`}>
+                            <a className="hover:underline">#{order.orderNumber}</a>
+                          </Link>
                         </td>
                         <td className="p-4">
                           <div>
@@ -320,6 +324,15 @@ export default function Orders() {
                                 )}
                               </DialogContent>
                             </Dialog>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setLocation(`/orders/${order.id}`)}
+                              data-testid={`button-open-order-page-${order.id}`}
+                              title="Open order details page"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </Button>
                           </div>
                         </td>
                       </tr>

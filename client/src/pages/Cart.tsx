@@ -17,10 +17,13 @@ import { api } from "@/lib/api";
 import { ShoppingCart, CreditCard, User, MapPin } from "lucide-react";
 
 const checkoutSchema = z.object({
-  customerName: z.string().min(1, "Customer name is required"),
+  customerName: z.string().min(1, "Client name is required"),
   customerEmail: z.string().email("Valid email is required"),
   customerPhone: z.string().min(1, "Phone number is required"),
   customerAddress: z.string().optional(),
+  jobOrder: z.string().optional(),
+  containerNumber: z.string().optional(),
+  location: z.string().optional(),
   notes: z.string().optional(),
 });
 
@@ -39,6 +42,9 @@ export default function Cart() {
       customerEmail: "",
       customerPhone: "",
       customerAddress: "",
+      jobOrder: "",
+      containerNumber: "",
+      location: "",
       notes: "",
     },
   });
@@ -84,6 +90,9 @@ export default function Cart() {
           customerName: data.customerName,
           customerEmail: data.customerEmail,
           customerPhone: data.customerPhone,
+          jobOrder: data.jobOrder,
+          containerNumber: data.containerNumber,
+          location: data.location,
           subtotal: subtotal.toString(),
           tax: tax.toString(),
           total: total.toString(),
@@ -181,17 +190,17 @@ export default function Cart() {
             <CardHeader>
               <CardTitle className="flex items-center space-x-2">
                 <User className="w-5 h-5" />
-                <span>Customer Information</span>
+                <span>Client & Order Information</span>
               </CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={form.handleSubmit(handleCheckout)} className="space-y-4">
                 <div>
-                  <Label htmlFor="customerName">Full Name *</Label>
+                  <Label htmlFor="customerName">Client Name *</Label>
                   <Input
                     id="customerName"
                     {...form.register("customerName")}
-                    placeholder="Enter your full name"
+                    placeholder="Enter client name"
                     data-testid="input-customer-name"
                   />
                   {form.formState.errors.customerName && (
@@ -207,7 +216,7 @@ export default function Cart() {
                     id="customerEmail"
                     type="email"
                     {...form.register("customerEmail")}
-                    placeholder="Enter your email"
+                    placeholder="Enter client email"
                     data-testid="input-customer-email"
                   />
                   {form.formState.errors.customerEmail && (
@@ -222,7 +231,7 @@ export default function Cart() {
                   <Input
                     id="customerPhone"
                     {...form.register("customerPhone")}
-                    placeholder="Enter your phone number"
+                    placeholder="Enter client phone number"
                     data-testid="input-customer-phone"
                   />
                   {form.formState.errors.customerPhone && (
@@ -241,6 +250,36 @@ export default function Cart() {
                     rows={3}
                     data-testid="textarea-customer-address"
                   />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="jobOrder">Job Order</Label>
+                    <Input
+                      id="jobOrder"
+                      {...form.register("jobOrder")}
+                      placeholder="e.g. JO-2025-001"
+                      data-testid="input-job-order"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="containerNumber">Container Number</Label>
+                    <Input
+                      id="containerNumber"
+                      {...form.register("containerNumber")}
+                      placeholder="e.g. CNT-12345"
+                      data-testid="input-container-number"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="location">Location</Label>
+                    <Input
+                      id="location"
+                      {...form.register("location")}
+                      placeholder="e.g. Karachi Port"
+                      data-testid="input-location"
+                    />
+                  </div>
                 </div>
 
                 <div>

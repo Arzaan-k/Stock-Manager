@@ -13,6 +13,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, user: Partial<InsertUser>): Promise<User>;
 
   // Warehouses
   getWarehouses(): Promise<Warehouse[]>;
@@ -42,6 +43,8 @@ export interface IStorage {
   getOrder(id: string): Promise<any | undefined>;
   createOrder(order: InsertOrder, items: InsertOrderItem[]): Promise<Order>;
   updateOrderStatus(id: string, status: string): Promise<Order>;
+  // Product usage by orders
+  getOrdersByProduct(productId: string): Promise<any[]>;
 
   // Stock Movements
   getStockMovements(productId?: string): Promise<any[]>;
@@ -62,6 +65,23 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
+  async getOrdersByProduct(productId: string): Promise<any[]> {
+    // Return list of orders that include the product with item details and customer
+    const items = await db
+      .select({
+        order: orders,
+        customer: customers,
+        orderItem: orderItems,
+      })
+      .from(orderItems)
+      .leftJoin(orders, eq(orderItems.orderId, orders.id))
+      .leftJoin(customers, eq(orders.customerId, customers.id))
+      .where(eq(orderItems.productId, productId))
+      .orderBy(desc(orders.createdAt));
+
+    return items;
+  }
+
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
     return user || undefined;
@@ -71,6 +91,15 @@ export class DatabaseStorage implements IStorage {
     const [user] = await db
       .insert(users)
       .values(insertUser)
+      .returning();
+    return user;
+  }
+
+  async updateUser(id: string, updateUser: Partial<InsertUser>): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set(updateUser)
+      .where(eq(users.id, id))
       .returning();
     return user;
   }

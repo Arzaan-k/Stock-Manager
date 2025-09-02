@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "wouter";
 import { useCart } from "@/hooks/useCart";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,25 +71,29 @@ export default function ProductCard({ product }: ProductCardProps) {
 
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-shadow" data-testid={`card-product-${product.id}`}>
-      <div className="aspect-square overflow-hidden">
-        {product.imageUrl ? (
-          <img
-            src={product.imageUrl}
-            alt={product.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          <div className="w-full h-full bg-muted flex items-center justify-center">
-            <Package className="w-12 h-12 text-muted-foreground" />
-          </div>
-        )}
-      </div>
+      <Link href={`/products/${product.id}`}>
+        <a className="block aspect-square overflow-hidden" data-testid={`link-product-image-${product.id}`}>
+          {product.imageUrl ? (
+            <img
+              src={product.imageUrl}
+              alt={product.name}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="w-full h-full bg-muted flex items-center justify-center">
+              <Package className="w-12 h-12 text-muted-foreground" />
+            </div>
+          )}
+        </a>
+      </Link>
       
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-2">
-          <h3 className="font-semibold text-foreground text-sm line-clamp-2" data-testid={`text-product-name-${product.id}`}>
-            {product.name}
-          </h3>
+          <Link href={`/products/${product.id}`}>
+            <a className="font-semibold text-foreground text-sm line-clamp-2 hover:underline" data-testid={`link-product-name-${product.id}`}>
+              {product.name}
+            </a>
+          </Link>
           <Badge variant={stockStatus.variant} data-testid={`badge-stock-status-${product.id}`}>
             {stockStatus.label}
           </Badge>
@@ -122,6 +127,12 @@ export default function ProductCard({ product }: ProductCardProps) {
             </>
           )}
         </Button>
+
+        <Link href={`/products/${product.id}`}>
+          <a className="mt-2 inline-flex text-xs text-muted-foreground hover:text-foreground hover:underline" data-testid={`link-view-details-${product.id}`}>
+            View details
+          </a>
+        </Link>
       </CardContent>
     </Card>
   );

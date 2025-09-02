@@ -11,15 +11,144 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { username, password } = req.body;
       const user = await storage.getUserByUsername(username);
+      console.log("/api/auth/login attempt", { username, found: !!user });
       
       if (!user || user.password !== password) {
+        console.log("/api/auth/login failed", { username, reason: !user ? "user_not_found" : "password_mismatch" });
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
       // In production, use proper JWT token
       res.json({ user: { ...user, password: undefined }, token: "mock-jwt-token" });
     } catch (error) {
+      console.error("/api/auth/login error", error);
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // CSV import for products
+  app.post("/api/products/import-csv", async (req, res) => {
+    try {
+      const { csv, warehouseId } = req.body || {};
+      if (typeof csv !== "string" || csv.trim().length === 0) {
+        return res.status(400).json({ error: "CSV content is required" });
+      }
+
+      // Basic CSV parser supporting quoted values and commas
+      const parseCSV = (text: string): string[][] => {
+        const rows: string[][] = [];
+        let row: string[] = [];
+        let cell = "";
+        let inQuotes = false;
+        for (let i = 0; i < text.length; i++) {
+          const c = text[i];
+          const next = text[i + 1];
+          if (c === '"') {
+            if (inQuotes && next === '"') { // escaped quote
+              cell += '"';
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (c === "," && !inQuotes) {
+            row.push(cell.trim());
+            cell = "";
+          } else if ((c === "\n" || c === "\r") && !inQuotes) {
+            if (cell.length > 0 || row.length > 0) {
+              row.push(cell.trim());
+              rows.push(row);
+              row = [];
+              cell = "";
+            }
+            // skip \r in \r\n
+            if (c === "\r" && next === "\n") i++;
+          } else {
+            cell += c;
+          }
+        }
+        if (cell.length > 0 || row.length > 0) {
+          row.push(cell.trim());
+          rows.push(row);
+        }
+        return rows.filter(r => r.some(v => v !== ""));
+      };
+
+      const rows = parseCSV(csv);
+      if (rows.length === 0) return res.json({ imported: 0 });
+
+      const header = rows[0].map(h => h.toLowerCase().trim());
+      const dataRows = rows.slice(1);
+
+      const get = (colName: string, r: string[]): string | undefined => {
+        const idx = header.indexOf(colName.toLowerCase());
+        return idx >= 0 ? r[idx] : undefined;
+      };
+
+      let imported = 0;
+      const created: any[] = [];
+      for (const r of dataRows) {
+        // Map incoming columns to product fields
+        const listOfItems = get("list of items", r) ?? get("name", r);
+        const crystalPartCode = get("crystal part code", r) ?? get("sku", r);
+        const mfgPartCode = get("mfg part code", r);
+        const priceStr = get("price", r);
+        const currentStockStr = get("current stock available", r) ?? get("stock", r);
+
+        const productCandidate: any = {
+          name: listOfItems || crystalPartCode || mfgPartCode || "Unnamed Product",
+          description: get("description", r),
+          sku: crystalPartCode || mfgPartCode || `SKU-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          type: get("group name", r) || get("type", r) || "General",
+          price: priceStr && priceStr !== "" ? priceStr : undefined,
+          stockTotal: currentStockStr ? parseInt(currentStockStr) || 0 : 0,
+          minStockLevel: parseInt(get("minimum inventory per day", r) || "0") || 0,
+          imageUrl: get("image url", r),
+          groupCode: get("group code", r),
+          groupName: get("group name", r),
+          crystalPartCode,
+          listOfItems,
+          photos: (() => {
+            const p = get("photos", r);
+            if (!p) return null;
+            const parts = p.split(/[;|,\s]+/).filter(Boolean);
+            return parts.length ? parts : null;
+          })(),
+          mfgPartCode,
+          importance: get("importance", r),
+          highValue: get("high value", r),
+          maximumUsagePerMonth: parseInt(get("maximum usage per month", r) || "") || undefined,
+          sixMonthsUsage: parseInt(get("6 months usage", r) || get("six months usage", r) || "") || undefined,
+          averagePerDay: (() => {
+            const v = get("average per day", r);
+            if (!v) return undefined;
+            return v;
+          })(),
+          leadTimeDays: parseInt(get("lead time days", r) || "") || undefined,
+          criticalFactorOneDay: parseInt(get("critical factor - one day", r) || "") || undefined,
+          units: get("units", r),
+          minimumInventoryPerDay: parseInt(get("minimum inventory per day", r) || "") || undefined,
+          maximumInventoryPerDay: parseInt(get("maximum inventory per day", r) || "") || undefined,
+        };
+
+        try {
+          const validated = insertProductSchema.parse(productCandidate);
+          const createdProduct = await storage.createProduct(validated);
+          // Optionally set initial warehouse stock
+          if (typeof warehouseId === "string" && warehouseId && createdProduct.stockTotal > 0) {
+            await storage.updateWarehouseStock(createdProduct.id, warehouseId, createdProduct.stockTotal);
+          }
+          created.push(createdProduct);
+          imported++;
+        } catch (e) {
+          // skip invalid rows
+          continue;
+        }
+      }
+
+      res.json({ imported, products: created });
+    } catch (error) {
+      console.error("/api/products/import-csv error", error);
+      res.status(500).json({ error: "Failed to import products from CSV" });
     }
   });
 
@@ -80,10 +209,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Product usage details (stock, movements, orders)
+  app.get("/api/products/:id/usage", async (req, res) => {
+    try {
+      const productId = req.params.id;
+      const product = await storage.getProduct(productId);
+      if (!product) {
+        return res.status(404).json({ error: "Product not found" });
+      }
+
+      const [warehouseStockList, movements, orders] = await Promise.all([
+        storage.getWarehouseStockForProduct(productId),
+        storage.getStockMovements(productId),
+        storage.getOrdersByProduct(productId),
+      ]);
+
+      res.json({
+        product,
+        warehouseStock: warehouseStockList,
+        movements,
+        orders,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch product usage info" });
+    }
+  });
+
   app.post("/api/products", async (req, res) => {
     try {
-      const productData = insertProductSchema.parse(req.body);
+      // Accept optional warehouseId separate from product fields
+      const { warehouseId, ...body } = req.body || {};
+      const productData = insertProductSchema.parse(body);
+
       const product = await storage.createProduct(productData);
+
+      // If warehouseId provided, set initial stock in warehouse_stock
+      if (typeof warehouseId === "string" && warehouseId) {
+        const qty = Number(productData.stockTotal) || 0;
+        if (qty > 0) {
+          await storage.updateWarehouseStock(product.id, warehouseId, qty);
+        }
+      }
+
       res.status(201).json(product);
     } catch (error) {
       if (error instanceof z.ZodError) {

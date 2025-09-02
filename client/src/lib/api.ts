@@ -20,10 +20,12 @@ export const api = {
     return apiRequest("GET", `/api/products?${params.toString()}`);
   },
   getProduct: (id: string) => apiRequest("GET", `/api/products/${id}`),
+  getProductUsage: (id: string) => apiRequest("GET", `/api/products/${id}/usage`),
   createProduct: (product: any) => apiRequest("POST", "/api/products", product),
   updateProduct: (id: string, product: any) => apiRequest("PUT", `/api/products/${id}`, product),
   deleteProduct: (id: string) => apiRequest("DELETE", `/api/products/${id}`),
   updateStock: (id: string, data: any) => apiRequest("POST", `/api/products/${id}/stock`, data),
+  importProductsCSV: (payload: { csv: string; warehouseId?: string }) => apiRequest("POST", "/api/products/import-csv", payload),
 
   // Warehouses
   getWarehouses: () => apiRequest("GET", "/api/warehouses"),

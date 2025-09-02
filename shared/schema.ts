@@ -42,6 +42,23 @@ export const products = pgTable("products", {
   stockAvailable: integer("stock_available").notNull().default(0),
   minStockLevel: integer("min_stock_level").default(10),
   imageUrl: text("image_url"),
+  // Extended business fields
+  groupCode: text("group_code"),
+  groupName: text("group_name"),
+  crystalPartCode: text("crystal_part_code"),
+  listOfItems: text("list_of_items"),
+  photos: jsonb("photos"), // array of URLs or objects
+  mfgPartCode: text("mfg_part_code"),
+  importance: text("importance"), // e.g., Critical, High, Medium
+  highValue: text("high_value"), // kept as text to support values like "Yes"/"No"/scores
+  maximumUsagePerMonth: integer("maximum_usage_per_month"),
+  sixMonthsUsage: integer("six_months_usage"),
+  averagePerDay: decimal("average_per_day", { precision: 10, scale: 2 }),
+  leadTimeDays: integer("lead_time_days"),
+  criticalFactorOneDay: integer("critical_factor_one_day"),
+  units: text("units"),
+  minimumInventoryPerDay: integer("minimum_inventory_per_day"),
+  maximumInventoryPerDay: integer("maximum_inventory_per_day"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -78,6 +95,10 @@ export const orders = pgTable("orders", {
   customerName: text("customer_name").notNull(),
   customerEmail: text("customer_email"),
   customerPhone: text("customer_phone"),
+  // Additional business metadata
+  jobOrder: text("job_order"),
+  containerNumber: text("container_number"),
+  location: text("location"),
   status: text("status").notNull().default("pending"), // pending, shipped, delivered, cancelled
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   tax: decimal("tax", { precision: 10, scale: 2 }).notNull().default("0"),
@@ -234,6 +255,7 @@ export const insertOrderSchema = createInsertSchema(orders).omit({
 
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
   id: true,
+  orderId: true, // assigned after order creation
 });
 
 export const insertStockMovementSchema = createInsertSchema(stockMovements).omit({

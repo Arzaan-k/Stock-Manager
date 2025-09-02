@@ -116,12 +116,12 @@ export default function Catalog() {
       <Card>
         <CardContent className="p-4">
           <div className="flex flex-wrap items-center gap-4">
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <Select value={selectedCategory || 'all'} onValueChange={(v) => setSelectedCategory(v === 'all' ? '' : v)}>
               <SelectTrigger className="w-full md:w-48" data-testid="select-category-filter">
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Categories</SelectItem>
+                <SelectItem value="all">All Categories</SelectItem>
                 {(categories as string[]).map((category: string) => (
                   <SelectItem key={category} value={category}>
                     {category}
@@ -130,24 +130,24 @@ export default function Catalog() {
               </SelectContent>
             </Select>
 
-            <Select value={priceRange} onValueChange={setPriceRange}>
+            <Select value={priceRange || 'all'} onValueChange={(v) => setPriceRange(v === 'all' ? '' : v)}>
               <SelectTrigger className="w-full md:w-48" data-testid="select-price-filter">
                 <SelectValue placeholder="Price Range" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Prices</SelectItem>
+                <SelectItem value="all">All Prices</SelectItem>
                 <SelectItem value="0-50">$0 - $50</SelectItem>
                 <SelectItem value="50-200">$50 - $200</SelectItem>
                 <SelectItem value="200+">$200+</SelectItem>
               </SelectContent>
             </Select>
 
-            <Select value={availability} onValueChange={setAvailability}>
+            <Select value={availability || 'all'} onValueChange={(v) => setAvailability(v === 'all' ? '' : v)}>
               <SelectTrigger className="w-full md:w-48" data-testid="select-availability-filter">
                 <SelectValue placeholder="Availability" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All Items</SelectItem>
+                <SelectItem value="all">All Items</SelectItem>
                 <SelectItem value="in-stock">In Stock</SelectItem>
                 <SelectItem value="low-stock">Low Stock</SelectItem>
                 <SelectItem value="out-of-stock">Out of Stock</SelectItem>
