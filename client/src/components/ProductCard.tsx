@@ -28,23 +28,15 @@ export default function ProductCard({ product }: ProductCardProps) {
   const { toast } = useToast();
 
   const handleAddToCart = async () => {
-    if (product.stockAvailable <= 0) {
-      toast({
-        title: "Out of Stock",
-        description: "This item is currently out of stock.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsAdding(true);
-    
     try {
       addItem(product, 1);
-      
       toast({
-        title: "Added to Cart",
-        description: `${product.name} has been added to your cart.`,
+        title: product.stockAvailable <= 0 ? "Added (OOS)" : "Added to Cart",
+        description:
+          product.stockAvailable <= 0
+            ? `${product.name} is out of stock and will require approval before purchase.`
+            : `${product.name} has been added to your cart.`,
       });
     } catch (error) {
       toast({
@@ -114,7 +106,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         
         <Button
           onClick={handleAddToCart}
-          disabled={isAdding || product.stockAvailable <= 0}
+          disabled={isAdding}
           className="w-full"
           data-testid={`button-add-to-cart-${product.id}`}
         >

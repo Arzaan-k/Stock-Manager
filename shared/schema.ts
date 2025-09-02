@@ -99,7 +99,14 @@ export const orders = pgTable("orders", {
   jobOrder: text("job_order"),
   containerNumber: text("container_number"),
   location: text("location"),
-  status: text("status").notNull().default("pending"), // pending, shipped, delivered, cancelled
+  status: text("status").notNull().default("pending"), // pending, needs_approval, approved, shipped, delivered, cancelled
+  // Approval workflow metadata
+  approvalStatus: text("approval_status"), // mirrors status for quick filters
+  approvalRequestedAt: timestamp("approval_requested_at"),
+  approvalRequestedBy: text("approval_requested_by"),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: text("approved_by"),
+  approvalNotes: text("approval_notes"),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   tax: decimal("tax", { precision: 10, scale: 2 }).notNull().default("0"),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
@@ -147,6 +154,42 @@ export const whatsappLogs = pgTable("whatsapp_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// GRN header table linked to orders
+export const grns = pgTable("grns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  orderId: varchar("order_id").notNull().references(() => orders.id, { onDelete: "cascade" }),
+  vendorName: text("vendor_name"),
+  vendorBillNo: text("vendor_bill_no"),
+  indentNo: text("indent_no"),
+  poNo: text("po_no"),
+  challanNo: text("challan_no"),
+  grnDate: timestamp("grn_date"),
+  vendorBillDate: timestamp("vendor_bill_date"),
+  poDate: timestamp("po_date"),
+  jobOrderNo: text("job_order_no"),
+  location: text("location"),
+  receivedBy: text("received_by"),
+  personName: text("person_name"),
+  remarks: text("remarks"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// GRN line items
+export const grnItems = pgTable("grn_items", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  grnId: varchar("grn_id").notNull().references(() => grns.id, { onDelete: "cascade" }),
+  srNo: integer("sr_no"),
+  mfgPartCode: text("mfg_part_code"),
+  requiredPart: text("required_part"), // REQUIRED SPARE PART(S) / CONSUMABLE(S)
+  makeModel: text("make_model"),
+  partNo: text("part_no"),
+  condition: text("condition"), // New/Old/Refurbished
+  qtyUnit: text("qty_unit"), // e.g., PCs
+  rate: decimal("rate", { precision: 12, scale: 2 }),
+  quantity: decimal("quantity", { precision: 12, scale: 2 }),
+  amount: decimal("amount", { precision: 12, scale: 2 }),
+});
+
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
   stockMovements: many(stockMovements),
@@ -185,6 +228,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     references: [customers.id],
   }),
   orderItems: many(orderItems),
+  grns: many(grns),
 }));
 
 export const orderItemsRelations = relations(orderItems, ({ one }) => ({
@@ -224,6 +268,21 @@ export const whatsappLogsRelations = relations(whatsappLogs, ({ one }) => ({
   }),
 }));
 
+export const grnsRelations = relations(grns, ({ one, many }) => ({
+  order: one(orders, {
+    fields: [grns.orderId],
+    references: [orders.id],
+  }),
+  items: many(grnItems),
+}));
+
+export const grnItemsRelations = relations(grnItems, ({ one }) => ({
+  grn: one(grns, {
+    fields: [grnItems.grnId],
+    references: [grns.id],
+  }),
+}));
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -256,6 +315,15 @@ export const insertOrderSchema = createInsertSchema(orders).omit({
 export const insertOrderItemSchema = createInsertSchema(orderItems).omit({
   id: true,
   orderId: true, // assigned after order creation
+});
+
+export const insertGrnSchema = createInsertSchema(grns).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertGrnItemSchema = createInsertSchema(grnItems).omit({
+  id: true,
 });
 
 export const insertStockMovementSchema = createInsertSchema(stockMovements).omit({
@@ -294,3 +362,8 @@ export type InsertStockMovement = z.infer<typeof insertStockMovementSchema>;
 
 export type WhatsappLog = typeof whatsappLogs.$inferSelect;
 export type InsertWhatsappLog = z.infer<typeof insertWhatsappLogSchema>;
+
+export type Grn = typeof grns.$inferSelect;
+export type InsertGrn = z.infer<typeof insertGrnSchema>;
+export type GrnItem = typeof grnItems.$inferSelect;
+export type InsertGrnItem = z.infer<typeof insertGrnItemSchema>;

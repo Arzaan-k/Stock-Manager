@@ -1,19 +1,43 @@
 import { Link, useRoute } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, FileText, User, Package, DollarSign, Calendar, MapPin } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { useState } from "react";
 
 export default function OrderDetail() {
   const [match, params] = useRoute("/orders/:id");
   const orderId = params?.id as string | undefined;
+  const qc = useQueryClient();
 
   const { data: order, isLoading, error } = useQuery({
     queryKey: ["/api/orders", orderId],
     queryFn: () => api.getOrder(orderId!).then((r) => r.json()),
     enabled: !!orderId,
+  });
+
+  // Lightweight approval request notes
+  const [approvalNotes, setApprovalNotes] = useState("");
+
+  const requestApproval = useMutation({
+    mutationFn: async () => {
+      const payload = { requestedBy: "staff", notes: approvalNotes };
+      return api.requestApproval(orderId!, payload).then(r => r.json());
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["/api/orders", orderId] });
+    },
+  });
+
+  const approve = useMutation({
+    mutationFn: async () => api.approveOrder(orderId!, "admin").then(r => r.json()),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["/api/orders", orderId] });
+    },
   });
 
   if (!match) return null;
@@ -128,6 +152,57 @@ export default function OrderDetail() {
               <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>${parseFloat(order.subtotal).toFixed(2)}</span></div>
               <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>${parseFloat(order.tax).toFixed(2)}</span></div>
               <div className="flex justify-between font-semibold border-t pt-2"><span>Total</span><span className="inline-flex items-center gap-1"><DollarSign className="w-4 h-4"/>{parseFloat(order.total).toFixed(2)}</span></div>
+            </div>
+
+            {/* Purchase Order actions */}
+            <Separator />
+            <div className="flex flex-wrap gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  if (!orderId) return;
+                  const url = api.getOrderPoUrl(orderId);
+                  window.open(url, "_blank");
+                }}
+              >
+                View PO (PDF)
+              </Button>
+              <Button
+                onClick={() => {
+                  if (!orderId) return;
+                  const url = api.getOrderPoDownloadUrl(orderId);
+                  window.open(url, "_blank");
+                }}
+              >
+                Download PO (PDF)
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Approval */}
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">Approval</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Approval Status:</span>
+              <Badge variant={(order.approvalStatus === "approved" ? "default" : order.approvalStatus === "needs_approval" ? "secondary" : "secondary") as any}>
+                {(order.approvalStatus || "n/a").replace(/_/g, " ")}
+              </Badge>
+            </div>
+            <div>
+              <div className="text-muted-foreground mb-1">Notes for approver (optional)</div>
+              <Textarea value={approvalNotes} onChange={e => setApprovalNotes(e.target.value)} placeholder="Notes for approver" />
+            </div>
+            <div className="flex gap-3">
+              <Button onClick={() => requestApproval.mutate()} disabled={requestApproval.isPending || !orderId}>
+                {requestApproval.isPending ? "Requesting..." : "Request Approval"}
+              </Button>
+              <Button variant="secondary" onClick={() => approve.mutate()} disabled={approve.isPending || !orderId}>
+                {approve.isPending ? "Approving..." : "Approve"}
+              </Button>
             </div>
           </CardContent>
         </Card>

@@ -32,14 +32,40 @@ export const api = {
   createWarehouse: (warehouse: any) => apiRequest("POST", "/api/warehouses", warehouse),
 
   // Orders
-  getOrders: (filters?: { status?: string }) => {
+  getOrders: (filters?: {
+    status?: string;
+    approvalStatus?: string;
+    customer?: string;
+    dateFrom?: string | Date;
+    dateTo?: string | Date;
+    minTotal?: string | number;
+    maxTotal?: string | number;
+    sortBy?: "createdAt" | "total" | "status" | "approvalStatus" | "customer";
+    sortDir?: "asc" | "desc";
+  }) => {
     const params = new URLSearchParams();
-    if (filters?.status) params.append("status", filters.status);
-    return apiRequest("GET", `/api/orders?${params.toString()}`);
+    if (filters?.status) params.append("status", String(filters.status));
+    if (filters?.approvalStatus) params.append("approvalStatus", String(filters.approvalStatus));
+    if (filters?.customer) params.append("customer", String(filters.customer));
+    if (filters?.dateFrom) params.append("dateFrom", (filters.dateFrom instanceof Date ? filters.dateFrom.toISOString() : String(filters.dateFrom)));
+    if (filters?.dateTo) params.append("dateTo", (filters.dateTo instanceof Date ? filters.dateTo.toISOString() : String(filters.dateTo)));
+    if (filters?.minTotal !== undefined) params.append("minTotal", String(filters.minTotal));
+    if (filters?.maxTotal !== undefined) params.append("maxTotal", String(filters.maxTotal));
+    if (filters?.sortBy) params.append("sortBy", String(filters.sortBy));
+    if (filters?.sortDir) params.append("sortDir", String(filters.sortDir));
+    const qs = params.toString();
+    return apiRequest("GET", `/api/orders${qs ? `?${qs}` : ""}`);
   },
   getOrder: (id: string) => apiRequest("GET", `/api/orders/${id}`),
   createOrder: (orderData: any) => apiRequest("POST", "/api/orders", orderData),
   updateOrderStatus: (id: string, status: string) => apiRequest("PUT", `/api/orders/${id}/status`, { status }),
+  requestApproval: (id: string, payload: any) => apiRequest("POST", `/api/orders/${id}/request-approval`, payload),
+  approveOrder: (id: string, approvedBy: string, notes?: string) => apiRequest("POST", `/api/orders/${id}/approve`, { approvedBy, notes }),
+  getOrderGrn: (id: string) => apiRequest("GET", `/api/orders/${id}/grn`),
+
+  // Purchase Orders (PDF)
+  getOrderPoUrl: (id: string) => `/api/orders/${id}/po.pdf`,
+  getOrderPoDownloadUrl: (id: string) => `/api/orders/${id}/po.pdf/download`,
 
   // Customers
   getCustomers: () => apiRequest("GET", "/api/customers"),

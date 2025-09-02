@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { whatsappService } from "./services/whatsapp";
 import { z } from "zod";
 import { insertProductSchema, insertOrderSchema, insertOrderItemSchema, insertCustomerSchema, insertWarehouseSchema } from "@shared/schema";
+import { streamPurchaseOrderPdf } from "./services/po";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
@@ -199,12 +200,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/products/:id", async (req, res) => {
     try {
-      const product = await storage.getProduct(req.params.id);
+      const id = req.params.id;
+      console.log("GET /api/products/:id", { id });
+      const product = await storage.getProduct(id);
       if (!product) {
+        console.warn("GET /api/products/:id not found", { id });
         return res.status(404).json({ error: "Product not found" });
       }
       res.json(product);
     } catch (error) {
+      console.error("GET /api/products/:id error", error);
       res.status(500).json({ error: "Failed to fetch product" });
     }
   });
@@ -213,8 +218,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/products/:id/usage", async (req, res) => {
     try {
       const productId = req.params.id;
+      console.log("GET /api/products/:id/usage", { productId });
       const product = await storage.getProduct(productId);
       if (!product) {
+        console.warn("GET /api/products/:id/usage not found", { productId });
         return res.status(404).json({ error: "Product not found" });
       }
 
@@ -231,6 +238,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         orders,
       });
     } catch (error) {
+      console.error("GET /api/products/:id/usage error", error);
       res.status(500).json({ error: "Failed to fetch product usage info" });
     }
   });
@@ -350,8 +358,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Orders routes
   app.get("/api/orders", async (req, res) => {
     try {
-      const { status } = req.query;
-      const orders = await storage.getOrders({ status: status as string });
+      const {
+        status,
+        approvalStatus,
+        customer,
+        dateFrom,
+        dateTo,
+        minTotal,
+        maxTotal,
+        sortBy,
+        sortDir,
+      } = req.query as Record<string, string>;
+
+      const orders = await storage.getOrders({
+        status,
+        approvalStatus,
+        customer,
+        dateFrom,
+        dateTo,
+        minTotal,
+        maxTotal,
+        sortBy: sortBy as any,
+        sortDir: sortDir as any,
+      });
       res.json(orders);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch orders" });
@@ -367,6 +396,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(order);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch order" });
+    }
+  });
+
+  // Purchase Order PDF (out-of-stock items only)
+  app.get("/api/orders/:id/po.pdf", async (req, res) => {
+    try {
+      await streamPurchaseOrderPdf(res, req.params.id, { download: false });
+    } catch (error) {
+      console.error("GET /api/orders/:id/po.pdf error", error);
+      res.status(500).json({ error: "Failed to generate PO PDF" });
+    }
+  });
+
+  app.get("/api/orders/:id/po.pdf/download", async (req, res) => {
+    try {
+      await streamPurchaseOrderPdf(res, req.params.id, { download: true });
+    } catch (error) {
+      console.error("GET /api/orders/:id/po.pdf/download error", error);
+      res.status(500).json({ error: "Failed to download PO PDF" });
     }
   });
 
@@ -402,6 +450,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid order data", details: error.errors });
       }
+      console.error("POST /api/orders error", {
+        message: (error as any)?.message,
+        code: (error as any)?.code,
+        detail: (error as any)?.detail,
+        stack: (error as any)?.stack,
+      });
       res.status(500).json({ error: "Failed to create order" });
     }
   });
@@ -413,6 +467,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(order);
     } catch (error) {
       res.status(500).json({ error: "Failed to update order status" });
+    }
+  });
+
+  // Approval workflow: request approval (with optional GRN). If no GRN/items provided, mark as needs_approval without GRN.
+  app.post("/api/orders/:id/request-approval", async (req, res) => {
+    try {
+      const BodySchema = z.object({
+        grn: z.object({
+          vendorName: z.string().optional(),
+          vendorBillNo: z.string().optional(),
+          indentNo: z.string().optional(),
+          poNo: z.string().optional(),
+          challanNo: z.string().optional(),
+          grnDate: z.string().datetime().or(z.string()).optional(),
+          vendorBillDate: z.string().datetime().or(z.string()).optional(),
+          poDate: z.string().datetime().or(z.string()).optional(),
+          jobOrderNo: z.string().optional(),
+          location: z.string().optional(),
+          receivedBy: z.string().optional(),
+          personName: z.string().optional(),
+          remarks: z.string().optional(),
+        }).optional(),
+        items: z.array(z.object({
+          srNo: z.number().optional(),
+          mfgPartCode: z.string().optional(),
+          requiredPart: z.string().optional(),
+          makeModel: z.string().optional(),
+          partNo: z.string().optional(),
+          condition: z.string().optional(),
+          qtyUnit: z.string().optional(),
+          rate: z.number().or(z.string()).optional(),
+          quantity: z.number().or(z.string()).optional(),
+          amount: z.number().or(z.string()).optional(),
+        })).optional(),
+        notes: z.string().optional(),
+        requestedBy: z.string().optional(),
+      });
+      const { grn, items, notes, requestedBy } = BodySchema.parse(req.body || {});
+
+      const hasGrn = grn && Object.keys(grn).length > 0;
+      const hasItems = Array.isArray(items) && items.length > 0;
+
+      if (!hasGrn && !hasItems) {
+        const order = await storage.requestApproval(req.params.id, requestedBy, notes);
+        return res.json({ success: true, order });
+      }
+
+      const header = { ...(grn || {}) } as any;
+      ["grnDate","vendorBillDate","poDate"].forEach(k => { if ((header as any)[k]) (header as any)[k] = new Date((header as any)[k]); });
+      const result = await storage.upsertOrderApprovalWithGrn(req.params.id, header, (items || []) as any, requestedBy, notes);
+      res.json({ success: true, grn: result.grn });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid payload", details: error.errors });
+      }
+      console.error("POST /api/orders/:id/request-approval error", error);
+      res.status(500).json({ error: "Failed to request approval" });
+    }
+  });
+
+  // Approval workflow: approve
+  app.post("/api/orders/:id/approve", async (req, res) => {
+    try {
+      const BodySchema = z.object({ approvedBy: z.string(), notes: z.string().optional() });
+      const { approvedBy, notes } = BodySchema.parse(req.body || {});
+      const order = await storage.approveOrder(req.params.id, approvedBy, notes);
+      res.json({ success: true, order });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid payload", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to approve order" });
+    }
+  });
+
+  // Get GRN for an order
+  app.get("/api/orders/:id/grn", async (req, res) => {
+    try {
+      const data = await storage.getOrderGrn(req.params.id);
+      res.json(data);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch GRN" });
     }
   });
 

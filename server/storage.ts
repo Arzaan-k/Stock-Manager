@@ -1,9 +1,11 @@
 import { 
   users, warehouses, products, warehouseStock, customers, orders, orderItems, stockMovements, whatsappLogs,
+  grns, grnItems,
   type User, type InsertUser, type Warehouse, type InsertWarehouse, 
   type Product, type InsertProduct, type Customer, type InsertCustomer,
   type Order, type InsertOrder, type OrderItem, type InsertOrderItem,
-  type StockMovement, type InsertStockMovement, type WhatsappLog, type InsertWhatsappLog
+  type StockMovement, type InsertStockMovement, type WhatsappLog, type InsertWhatsappLog,
+  type Grn, type InsertGrn, type GrnItem, type InsertGrnItem
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, like, and, sql } from "drizzle-orm";
@@ -39,10 +41,26 @@ export interface IStorage {
   createCustomer(customer: InsertCustomer): Promise<Customer>;
 
   // Orders
-  getOrders(filters?: { status?: string }): Promise<any[]>;
+  getOrders(filters?: {
+    status?: string;
+    approvalStatus?: string;
+    customer?: string; // customer name (partial match)
+    dateFrom?: string | Date;
+    dateTo?: string | Date;
+    minTotal?: string | number;
+    maxTotal?: string | number;
+    sortBy?: "createdAt" | "total" | "status" | "approvalStatus" | "customer";
+    sortDir?: "asc" | "desc";
+  }): Promise<any[]>;
   getOrder(id: string): Promise<any | undefined>;
   createOrder(order: InsertOrder, items: InsertOrderItem[]): Promise<Order>;
   updateOrderStatus(id: string, status: string): Promise<Order>;
+  // Approval & GRN
+  upsertOrderApprovalWithGrn(orderId: string, header: Omit<InsertGrn, "orderId">, items: InsertGrnItem[], requestedBy?: string, notes?: string): Promise<{ grn: Grn }>;
+  // Request approval without GRN (for out-of-stock cases)
+  requestApproval(orderId: string, requestedBy?: string, notes?: string): Promise<Order>;
+  approveOrder(orderId: string, approvedBy: string, notes?: string): Promise<Order>;
+  getOrderGrn(orderId: string): Promise<{ grn: Grn | undefined; items: GrnItem[] }>;
   // Product usage by orders
   getOrdersByProduct(productId: string): Promise<any[]>;
 
@@ -63,6 +81,22 @@ export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
+  }
+
+  async requestApproval(orderId: string, requestedBy?: string, notes?: string): Promise<Order> {
+    const [order] = await db
+      .update(orders)
+      .set({
+        status: "needs_approval",
+        approvalStatus: "needs_approval",
+        approvalRequestedAt: new Date(),
+        approvalRequestedBy: requestedBy,
+        approvalNotes: notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId))
+      .returning();
+    return order;
   }
 
   async getOrdersByProduct(productId: string): Promise<any[]> {
@@ -250,11 +284,44 @@ export class DatabaseStorage implements IStorage {
     return customer;
   }
 
-  async getOrders(filters?: { status?: string }): Promise<any[]> {
-    const conditions = [];
-    
+  async getOrders(filters?: {
+    status?: string;
+    approvalStatus?: string;
+    customer?: string;
+    dateFrom?: string | Date;
+    dateTo?: string | Date;
+    minTotal?: string | number;
+    maxTotal?: string | number;
+    sortBy?: "createdAt" | "total" | "status" | "approvalStatus" | "customer";
+    sortDir?: "asc" | "desc";
+  }): Promise<any[]> {
+    const conditions: any[] = [];
+
     if (filters?.status) {
       conditions.push(eq(orders.status, filters.status));
+    }
+    if (filters?.approvalStatus) {
+      conditions.push(eq(orders.approvalStatus, filters.approvalStatus));
+    }
+    if (filters?.customer) {
+      // case-insensitive partial match on customer name
+      conditions.push(like(orders.customerName, `%${filters.customer}%`));
+    }
+    if (filters?.dateFrom) {
+      const df = typeof filters.dateFrom === "string" ? new Date(filters.dateFrom) : filters.dateFrom;
+      conditions.push(sql`${orders.createdAt} >= ${df}`);
+    }
+    if (filters?.dateTo) {
+      const dt = typeof filters.dateTo === "string" ? new Date(filters.dateTo) : filters.dateTo;
+      conditions.push(sql`${orders.createdAt} <= ${dt}`);
+    }
+    if (filters?.minTotal != null && filters.minTotal !== "") {
+      const minT = typeof filters.minTotal === "string" ? Number(filters.minTotal) : filters.minTotal;
+      conditions.push(sql`CAST(${orders.total} AS NUMERIC) >= ${minT}`);
+    }
+    if (filters?.maxTotal != null && filters.maxTotal !== "") {
+      const maxT = typeof filters.maxTotal === "string" ? Number(filters.maxTotal) : filters.maxTotal;
+      conditions.push(sql`CAST(${orders.total} AS NUMERIC) <= ${maxT}`);
     }
 
     const query = db
@@ -268,11 +335,30 @@ export class DatabaseStorage implements IStorage {
       .leftJoin(orderItems, eq(orders.id, orderItems.orderId))
       .groupBy(orders.id, customers.id);
 
+    // Sorting
+    const sortBy = filters?.sortBy ?? "createdAt";
+    const sortDir = (filters?.sortDir ?? "desc").toLowerCase() === "asc" ? "asc" : "desc";
+    const orderExpr = (() => {
+      switch (sortBy) {
+        case "total":
+          return sortDir === "asc" ? asc(orders.total) : desc(orders.total);
+        case "status":
+          return sortDir === "asc" ? asc(orders.status) : desc(orders.status);
+        case "approvalStatus":
+          return sortDir === "asc" ? asc(orders.approvalStatus) : desc(orders.approvalStatus);
+        case "customer":
+          return sortDir === "asc" ? asc(orders.customerName) : desc(orders.customerName);
+        case "createdAt":
+        default:
+          return sortDir === "asc" ? asc(orders.createdAt) : desc(orders.createdAt);
+      }
+    })();
+
     if (conditions.length > 0) {
-      return await query.where(and(...conditions)).orderBy(desc(orders.createdAt));
+      return await query.where(and(...conditions)).orderBy(orderExpr);
     }
 
-    return await query.orderBy(desc(orders.createdAt));
+    return await query.orderBy(orderExpr);
   }
 
   async getOrder(id: string): Promise<any | undefined> {
@@ -323,13 +409,19 @@ export class DatabaseStorage implements IStorage {
         }))
       );
 
-      // Update stock and create movement logs
+      // Update stock, create movement logs, and detect out-of-stock usage
+      let needsApproval = false;
       for (const item of items) {
         const product = await this.getProduct(item.productId);
         if (product) {
+          // If current available is less than requested, flag for approval
+          if ((product.stockAvailable ?? 0) < item.quantity) {
+            needsApproval = true;
+          }
+
           const newStockUsed = product.stockUsed + item.quantity;
           const newStockAvailable = product.stockTotal - newStockUsed;
-          
+
           await this.updateProduct(item.productId, {
             stockUsed: newStockUsed,
             stockAvailable: newStockAvailable,
@@ -346,6 +438,20 @@ export class DatabaseStorage implements IStorage {
           });
         }
       }
+
+      if (needsApproval) {
+        // Mark order as needing approval with metadata
+        await db
+          .update(orders)
+          .set({
+            status: "needs_approval",
+            approvalStatus: "needs_approval",
+            approvalRequestedAt: new Date(),
+            approvalRequestedBy: insertOrder?.customerName || "system",
+            updatedAt: new Date(),
+          })
+          .where(eq(orders.id, order.id));
+      }
     }
 
     return order;
@@ -358,6 +464,70 @@ export class DatabaseStorage implements IStorage {
       .where(eq(orders.id, id))
       .returning();
     return order;
+  }
+
+  async upsertOrderApprovalWithGrn(orderId: string, header: Omit<InsertGrn, "orderId">, items: InsertGrnItem[], requestedBy?: string, notes?: string): Promise<{ grn: Grn }> {
+    // Upsert GRN header (one GRN per order). If exists, update; else insert.
+    const existing = await db.select().from(grns).where(eq(grns.orderId, orderId));
+    let grnRow: Grn;
+    if (existing[0]) {
+      const [updated] = await db
+        .update(grns)
+        .set({ ...header })
+        .where(eq(grns.id, existing[0].id))
+        .returning();
+      grnRow = updated as Grn;
+      // Replace items: delete then insert
+      await db.delete(grnItems).where(eq(grnItems.grnId, grnRow.id));
+    } else {
+      const [created] = await db
+        .insert(grns)
+        .values({ ...header, orderId })
+        .returning();
+      grnRow = created as Grn;
+    }
+
+    if (items && items.length) {
+      await db.insert(grnItems).values(items.map(it => ({ ...it, grnId: grnRow.id })));
+    }
+
+    // Move order into needs_approval and set metadata
+    await db
+      .update(orders)
+      .set({ 
+        status: "needs_approval",
+        approvalStatus: "needs_approval",
+        approvalRequestedAt: new Date(),
+        approvalRequestedBy: requestedBy,
+        approvalNotes: notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId));
+
+    return { grn: grnRow };
+  }
+
+  async approveOrder(orderId: string, approvedBy: string, notes?: string): Promise<Order> {
+    const [order] = await db
+      .update(orders)
+      .set({ 
+        status: "approved",
+        approvalStatus: "approved",
+        approvedAt: new Date(),
+        approvedBy,
+        approvalNotes: notes,
+        updatedAt: new Date(),
+      })
+      .where(eq(orders.id, orderId))
+      .returning();
+    return order;
+  }
+
+  async getOrderGrn(orderId: string): Promise<{ grn: Grn | undefined; items: GrnItem[] }> {
+    const [grnRow] = await db.select().from(grns).where(eq(grns.orderId, orderId));
+    if (!grnRow) return { grn: undefined, items: [] };
+    const items = await db.select().from(grnItems).where(eq(grnItems.grnId, grnRow.id));
+    return { grn: grnRow, items };
   }
 
   async getStockMovements(productId?: string): Promise<any[]> {

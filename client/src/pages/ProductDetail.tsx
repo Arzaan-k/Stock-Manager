@@ -47,7 +47,21 @@ export default function ProductDetail() {
   }
 
   if (error) {
-    return <div className="text-destructive">Failed to load product.</div>;
+    const message = (error as Error)?.message || "Unknown error";
+    const isNotFound = message.startsWith("404:");
+    return (
+      <div className="space-y-3">
+        <div className="text-destructive">
+          {isNotFound ? "Product not found." : "Failed to load product."}
+          <div className="text-xs text-muted-foreground mt-1 break-all">{message}</div>
+        </div>
+        <Link href="/catalog">
+          <a className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="w-4 h-4 mr-1" /> Back to Catalog
+          </a>
+        </Link>
+      </div>
+    );
   }
 
   const product = data?.product;
