@@ -861,6 +861,7 @@ export class WhatsAppService {
             return;
         }
       }
+    }
 
       if (product) {
         const lower = text.toLowerCase();
@@ -889,7 +890,7 @@ export class WhatsAppService {
         products: allProducts,
         conversation: conversation
       });
-      const aiResponseText = aiResponse.response;
+      const aiResponseText = response.response;
       await this.sendWhatsAppMessage(userPhone, aiResponseText);
 
       await storage.createWhatsappLog({
