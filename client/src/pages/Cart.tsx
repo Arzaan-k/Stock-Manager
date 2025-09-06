@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import CartItem from "@/components/CartItem";
 import { api } from "@/lib/api";
 import { ShoppingCart, CreditCard, User, MapPin } from "lucide-react";
+import { formatCurrency } from "@/lib/currency";
 
 const checkoutSchema = z.object({
   customerName: z.string().min(1, "Client name is required"),
@@ -164,22 +165,16 @@ export default function Cart() {
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span className="text-foreground" data-testid="text-cart-subtotal">
-                    ${getSubtotal().toFixed(2)}
-                  </span>
+                  <span>{formatCurrency(getSubtotal())}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Tax (8%)</span>
-                  <span className="text-foreground" data-testid="text-cart-tax">
-                    ${getTax().toFixed(2)}
-                  </span>
+                  <span className="text-muted-foreground">Tax (10%)</span>
+                  <span>{formatCurrency(getTax())}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between font-semibold">
-                  <span className="text-foreground">Total</span>
-                  <span className="text-foreground" data-testid="text-cart-total">
-                    ${getTotal().toFixed(2)}
-                  </span>
+                  <span className="font-medium">Total</span>
+                  <span className="font-bold">{formatCurrency(getTotal())}</span>
                 </div>
               </div>
             </CardContent>
@@ -304,7 +299,7 @@ export default function Cart() {
                   ) : (
                     <>
                       <CreditCard className="w-4 h-4 mr-2" />
-                      Place Order - ${getTotal().toFixed(2)}
+                      Place Order - {formatCurrency(getTotal())}
                     </>
                   )}
                 </Button>

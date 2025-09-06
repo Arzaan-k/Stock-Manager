@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
+import { formatCurrency } from "@/lib/currency";
 import {
-  DollarSign,
   TrendingUp,
   Package,
   MessageCircle,
@@ -122,11 +122,11 @@ export default function Analytics() {
               <div>
                 <p className="text-sm text-muted-foreground">Monthly Revenue</p>
                 <p className="text-2xl font-bold text-foreground" data-testid="text-monthly-revenue">
-                  ${analyticsData.monthlyRevenue.toLocaleString()}
+                  {formatCurrency(analyticsData.monthlyRevenue)}
                 </p>
               </div>
               <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-primary" />
+                <Activity className="w-6 h-6 text-primary" />
               </div>
             </div>
             <p className="text-xs text-primary mt-2 flex items-center">
@@ -235,10 +235,10 @@ export default function Analytics() {
         <Card data-testid="card-avg-order-value">
           <CardContent className="p-6">
             <div className="text-center">
-              <DollarSign className="w-8 h-8 text-primary mx-auto mb-2" />
+              <Activity className="w-8 h-8 text-primary mx-auto mb-2" />
               <p className="text-sm text-muted-foreground">Average Order Value</p>
               <p className="text-xl font-bold text-foreground" data-testid="text-avg-order-value">
-                ${analyticsData.averageOrderValue}
+                {formatCurrency(analyticsData.averageOrderValue)}
               </p>
             </div>
           </CardContent>
@@ -312,7 +312,7 @@ export default function Analytics() {
                       {product.unitsMoved}
                     </td>
                     <td className="p-4 text-sm font-medium text-foreground" data-testid={`text-product-revenue-${product.id}`}>
-                      ${product.revenue.toLocaleString()}
+                      {formatCurrency(product.revenue)}
                     </td>
                     <td className="p-4">
                       <div className={`flex items-center text-xs ${

@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useCart } from "@/hooks/useCart";
 import { Minus, Plus, Trash2, Package } from "lucide-react";
+import { formatCurrency } from "@/lib/currency";
 
 interface CartItemProps {
   item: {
@@ -63,7 +64,7 @@ export default function CartItem({ item }: CartItemProps) {
               SKU: {item.sku}
             </p>
             <p className="text-lg font-semibold text-foreground mt-1" data-testid={`text-cart-item-price-${item.id}`}>
-              ${item.price.toFixed(2)}
+              {formatCurrency(item.price)}
             </p>
           </div>
 
@@ -119,7 +120,7 @@ export default function CartItem({ item }: CartItemProps) {
         <div className="mt-3 pt-3 border-t border-border flex justify-between items-center">
           <span className="text-sm text-muted-foreground">Subtotal</span>
           <span className="font-semibold text-foreground" data-testid={`text-cart-item-subtotal-${item.id}`}>
-            ${(item.price * item.quantity).toFixed(2)}
+            {formatCurrency(item.price * item.quantity)}
           </span>
         </div>
       </CardContent>

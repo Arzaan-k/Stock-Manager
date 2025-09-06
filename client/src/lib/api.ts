@@ -77,4 +77,22 @@ export const api = {
     if (productId) params.append("productId", productId);
     return apiRequest("GET", `/api/stock-movements?${params.toString()}`);
   },
+
+  // WhatsApp
+  sendWhatsAppMessage: (payload: { phone: string; message: string }) =>
+    apiRequest("POST", "/api/whatsapp/send", payload),
+  listWhatsappConversations: (filters?: { status?: string; search?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.status) params.append("status", filters.status);
+    if (filters?.search) params.append("search", filters.search);
+    const qs = params.toString();
+    return apiRequest("GET", `/api/whatsapp/conversations${qs ? `?${qs}` : ""}`).then(res => res.json()).then(data => data.value || data);
+  },
+  getWhatsappConversationMessages: (conversationId: string) =>
+    apiRequest("GET", `/api/whatsapp/conversations/${conversationId}/messages`).then(res => res.json()).then(data => data.value || data),
+  assignWhatsappConversation: (conversationId: string, payload: { agentUserId?: string | null; status?: "open" | "pending" | "closed" }) =>
+    apiRequest("POST", `/api/whatsapp/conversations/${conversationId}/assign`, payload),
+  replyWhatsappConversation: (conversationId: string, message: string) =>
+    apiRequest("POST", `/api/whatsapp/conversations/${conversationId}/reply`, { message }),
+  getWhatsAppLogs: () => apiRequest("GET", "/api/whatsapp/logs").then(res => res.json()).then(data => data.value || data),
 };

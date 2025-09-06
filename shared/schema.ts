@@ -154,6 +154,27 @@ export const whatsappLogs = pgTable("whatsapp_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// WhatsApp conversations (per phone number) and messages for full chat history
+export const whatsappConversations = pgTable("whatsapp_conversations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userPhone: text("user_phone").notNull(),
+  status: text("status").notNull().default("open"), // open, pending, closed
+  assignedToUserId: varchar("assigned_to_user_id").references(() => users.id),
+  state: jsonb("state"), // arbitrary state: { cart: [{productId, qty}], step: 'collect_details', customer:{...} }
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const whatsappMessages = pgTable("whatsapp_messages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: varchar("conversation_id").notNull().references(() => whatsappConversations.id, { onDelete: "cascade" }),
+  direction: text("direction").notNull(), // inbound, outbound
+  sender: text("sender").notNull(), // 'user' or 'agent'
+  body: text("body").notNull(),
+  meta: jsonb("meta"), // raw webhook or send response
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 // GRN header table linked to orders
 export const grns = pgTable("grns", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -268,6 +289,21 @@ export const whatsappLogsRelations = relations(whatsappLogs, ({ one }) => ({
   }),
 }));
 
+export const whatsappConversationsRelations = relations(whatsappConversations, ({ one, many }) => ({
+  assignedTo: one(users, {
+    fields: [whatsappConversations.assignedToUserId],
+    references: [users.id],
+  }),
+  messages: many(whatsappMessages),
+}));
+
+export const whatsappMessagesRelations = relations(whatsappMessages, ({ one }) => ({
+  conversation: one(whatsappConversations, {
+    fields: [whatsappMessages.conversationId],
+    references: [whatsappConversations.id],
+  }),
+}));
+
 export const grnsRelations = relations(grns, ({ one, many }) => ({
   order: one(orders, {
     fields: [grns.orderId],
@@ -336,6 +372,17 @@ export const insertWhatsappLogSchema = createInsertSchema(whatsappLogs).omit({
   createdAt: true,
 });
 
+export const insertWhatsappConversationSchema = createInsertSchema(whatsappConversations).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertWhatsappMessageSchema = createInsertSchema(whatsappMessages).omit({
+  id: true,
+  createdAt: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -362,6 +409,12 @@ export type InsertStockMovement = z.infer<typeof insertStockMovementSchema>;
 
 export type WhatsappLog = typeof whatsappLogs.$inferSelect;
 export type InsertWhatsappLog = z.infer<typeof insertWhatsappLogSchema>;
+
+export type WhatsappConversation = typeof whatsappConversations.$inferSelect;
+export type InsertWhatsappConversation = z.infer<typeof insertWhatsappConversationSchema>;
+
+export type WhatsappMessage = typeof whatsappMessages.$inferSelect;
+export type InsertWhatsappMessage = z.infer<typeof insertWhatsappMessageSchema>;
 
 export type Grn = typeof grns.$inferSelect;
 export type InsertGrn = z.infer<typeof insertGrnSchema>;

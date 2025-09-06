@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Package, ArrowLeft, Warehouse, History } from "lucide-react";
+import { formatCurrency } from "@/lib/currency";
 
 export default function ProductDetail() {
   const [match, params] = useRoute("/products/:id");
@@ -106,7 +107,7 @@ export default function ProductDetail() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                   <div>
                     <div className="text-muted-foreground">Price</div>
-                    <div className="font-medium">${parseFloat(product?.price || "0").toFixed(2)}</div>
+                    <div className="font-medium">{formatCurrency(parseFloat(product?.price || "0"))}</div>
                   </div>
                   <div>
                     <div className="text-muted-foreground">Available</div>
@@ -231,7 +232,7 @@ export default function ProductDetail() {
                       </div>
                       <div className="text-right text-sm">
                         <div>Qty: {o.orderItem.quantity}</div>
-                        <div>Unit: ${parseFloat(o.orderItem.unitPrice).toFixed(2)}</div>
+                        <div>Unit: {formatCurrency(parseFloat(o.orderItem.unitPrice))}</div>
                       </div>
                     </a>
                   </Link>

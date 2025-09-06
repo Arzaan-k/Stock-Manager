@@ -740,16 +740,17 @@ export class WhatsAppService {
 
       // First try to parse as inventory command using NLP
       if (!messageHandled) {
-        const inventoryCommand = await parseInventoryCommand(text, await storage.getProducts({}));
-        if (inventoryCommand.action !== "unknown") {
-          switch (inventoryCommand.action) {
-            case "add_stock":
-              // Search for products by name first
-              const addProducts = inventoryCommand.productName ? 
-                await storage.searchProducts(inventoryCommand.productName) : [];
-              const addProd = addProducts.length > 0 ? addProducts[0] : null;
-              
-              if (!addProd) {
+        try {
+          const inventoryCommand = await parseInventoryCommand(text, await storage.getProducts({}));
+          if (inventoryCommand.action !== "unknown") {
+            switch (inventoryCommand.action) {
+              case "add_stock": {
+                // Search for products by name first
+                const addProducts = inventoryCommand.productName ? 
+                  await storage.searchProducts(inventoryCommand.productName) : [];
+                const addProd = addProducts.length > 0 ? addProducts[0] : null;
+                
+                if (!addProd) {
               // Search for similar products using fuzzy search
               const similarProducts = (await storage.getProducts({ search: inventoryCommand.productName })).slice(0, 5);
               if (similarProducts.length > 0) {

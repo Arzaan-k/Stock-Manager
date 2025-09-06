@@ -149,8 +149,8 @@ export default function Layout({ children }: LayoutProps) {
 
       {/* Main content */}
       <div className="md:pl-64">
-        {/* Header */}
-        <header className="bg-card border-b border-border px-4 py-3 md:px-6">
+        {/* Header (sticky) */}
+        <header className="sticky top-0 z-30 bg-card/80 supports-[backdrop-filter]:bg-card/60 backdrop-blur border-b border-border px-4 py-3 md:px-6">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-2xl font-semibold text-foreground">{currentPageInfo.title}</h1>
@@ -192,6 +192,25 @@ export default function Layout({ children }: LayoutProps) {
         <main className="p-4 md:p-6">
           {children}
         </main>
+
+        {/* Floating Cart Button (always accessible) */}
+        <div className="fixed bottom-6 right-6 z-40">
+          <Link href="/cart">
+            <a
+              className="relative inline-flex items-center justify-center h-12 w-12 rounded-full shadow-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+              aria-label="Open Cart"
+            >
+              <ShoppingCart className="w-6 h-6" />
+              {getTotalItems() > 0 && (
+                <span
+                  className="absolute -top-1 -right-1 bg-background text-foreground text-[10px] font-semibold rounded-full border border-border h-5 min-w-[20px] px-1 flex items-center justify-center"
+                >
+                  {getTotalItems()}
+                </span>
+              )}
+            </a>
+          </Link>
+        </div>
       </div>
     </div>
   );

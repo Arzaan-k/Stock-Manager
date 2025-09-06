@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { ShoppingCart, Package } from "lucide-react";
+import { formatCurrency } from "@/lib/currency";
 
 interface Product {
   id: string;
@@ -73,33 +74,33 @@ export default function ProductCard({ product }: ProductCardProps) {
             />
           ) : (
             <div className="w-full h-full bg-muted flex items-center justify-center">
-              <Package className="w-12 h-12 text-muted-foreground" />
+              <Package className="w-10 h-10 sm:w-12 sm:h-12 text-muted-foreground" />
             </div>
           )}
         </a>
       </Link>
       
-      <CardContent className="p-4">
+      <CardContent className="p-3 sm:p-4">
         <div className="flex items-start justify-between mb-2">
           <Link href={`/products/${product.id}`}>
-            <a className="font-semibold text-foreground text-sm line-clamp-2 hover:underline" data-testid={`link-product-name-${product.id}`}>
+            <a className="font-semibold text-foreground text-xs sm:text-sm line-clamp-2 hover:underline" data-testid={`link-product-name-${product.id}`}>
               {product.name}
             </a>
           </Link>
-          <Badge variant={stockStatus.variant} data-testid={`badge-stock-status-${product.id}`}>
+          <Badge className="scale-90 sm:scale-100" variant={stockStatus.variant} data-testid={`badge-stock-status-${product.id}`}>
             {stockStatus.label}
           </Badge>
         </div>
         
-        <p className="text-xs text-muted-foreground mb-3" data-testid={`text-product-sku-${product.id}`}>
+        <p className="text-[11px] sm:text-xs text-muted-foreground mb-2 sm:mb-3" data-testid={`text-product-sku-${product.id}`}>
           SKU: {product.sku}
         </p>
         
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-lg font-bold text-foreground" data-testid={`text-product-price-${product.id}`}>
-            ${parseFloat(product.price || "0").toFixed(2)}
+        <div className="flex items-center justify-between mb-2 sm:mb-3">
+          <span className="text-base sm:text-lg font-bold text-foreground" data-testid={`text-product-price-${product.id}`}>
+            {formatCurrency(parseFloat(product.price || "0"))}
           </span>
-          <span className="text-sm text-muted-foreground" data-testid={`text-product-stock-${product.id}`}>
+          <span className="text-xs sm:text-sm text-muted-foreground" data-testid={`text-product-stock-${product.id}`}>
             {product.stockAvailable} available
           </span>
         </div>
@@ -107,7 +108,7 @@ export default function ProductCard({ product }: ProductCardProps) {
         <Button
           onClick={handleAddToCart}
           disabled={isAdding}
-          className="w-full"
+          className="w-full h-9 text-xs sm:h-10 sm:text-sm"
           data-testid={`button-add-to-cart-${product.id}`}
         >
           {isAdding ? (

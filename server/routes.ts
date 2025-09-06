@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { whatsappService } from "./services/whatsapp";
+import { parseInventoryCommand } from "./services/gemini";
 import { z } from "zod";
 import { insertProductSchema, insertOrderSchema, insertOrderItemSchema, insertCustomerSchema, insertWarehouseSchema } from "@shared/schema";
 import { streamPurchaseOrderPdf } from "./services/po";
@@ -601,6 +602,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // WhatsApp conversations APIs for dashboard
+  app.get("/api/whatsapp/conversations", async (req, res) => {
+    try {
+      const { status, search } = req.query as Record<string, string>;
+      const list = await storage.listConversations({ status, search });
+      res.json(list);
+    } catch (error) {
+      console.error("GET /api/whatsapp/conversations error", error);
+      res.status(500).json({ error: "Failed to fetch conversations" });
+    }
+  });
+
+  app.get("/api/whatsapp/conversations/:id/messages", async (req, res) => {
+    try {
+      const convo = await storage.getConversation(req.params.id);
+      if (!convo) return res.status(404).json({ error: "Conversation not found" });
+      const messages = await storage.listMessages(req.params.id);
+      res.json({ conversation: convo, messages });
+    } catch (error) {
+      console.error("GET /api/whatsapp/conversations/:id/messages error", error);
+      res.status(500).json({ error: "Failed to fetch conversation messages" });
+    }
+  });
+
+  // WhatsApp logs API for dashboard
+  app.get("/api/whatsapp/logs", async (req, res) => {
+    try {
+      const logs = await storage.getWhatsappLogs();
+      res.json(logs);
+    } catch (error) {
+      console.error("GET /api/whatsapp/logs error", error);
+      res.status(500).json({ error: "Failed to fetch WhatsApp logs" });
+    }
+  });
+
+  app.post("/api/whatsapp/conversations/:id/assign", async (req, res) => {
+    try {
+      const Body = z.object({ agentUserId: z.string().nullable().optional(), status: z.enum(["open","pending","closed"]).optional() });
+      const { agentUserId, status } = Body.parse(req.body || {});
+      const convo = await storage.getConversation(req.params.id);
+      if (!convo) return res.status(404).json({ error: "Conversation not found" });
+      const updated = await storage.updateConversation(req.params.id, { agentUserId: agentUserId ?? undefined, status });
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Invalid payload", details: error.errors });
+      console.error("POST /api/whatsapp/conversations/:id/assign error", error);
+      res.status(500).json({ error: "Failed to update conversation" });
+    }
+  });
+
+  // Agent reply to a conversation (uses WhatsApp send API and persists message)
+  app.post("/api/whatsapp/conversations/:id/reply", async (req, res) => {
+    try {
+      const Body = z.object({ message: z.string().min(1) });
+      const { message } = Body.parse(req.body || {});
+      const convo = await storage.getConversation(req.params.id);
+      if (!convo) return res.status(404).json({ error: "Conversation not found" });
+      await whatsappService.sendWhatsAppMessage(convo.phone, message);
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) return res.status(400).json({ error: "Invalid payload", details: error.errors });
+      console.error("POST /api/whatsapp/conversations/:id/reply error", error);
+      res.status(500).json({ error: "Failed to send reply" });
+    }
+  });
+
+  // Send a custom WhatsApp message from the dashboard
+  app.post("/api/whatsapp/send", async (req, res) => {
+    try {
+      const BodySchema = z.object({
+        phone: z.string().min(6),
+        message: z.string().min(1),
+      });
+      const { phone, message } = BodySchema.parse(req.body || {});
+
+      await whatsappService.sendWhatsAppMessage(phone, message);
+
+      // Log the manual send for auditability
+      try {
+        await storage.createWhatsappLog({
+          userPhone: phone,
+          action: "manual_message",
+          aiResponse: message,
+          status: "processed",
+        });
+      } catch (e) {
+        // Non-fatal: continue even if logging fails
+        console.warn("/api/whatsapp/send log failure", e);
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid payload", details: error.errors });
+      }
+      console.error("POST /api/whatsapp/send error", error);
+      res.status(500).json({ error: "Failed to send WhatsApp message" });
+    }
+  });
+
   // Analytics routes
   app.get("/api/analytics/dashboard", async (req, res) => {
     try {
@@ -619,6 +720,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(movements);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch stock movements" });
+    }
+  });
+
+  // Test endpoint for NLP inventory command parsing
+  app.post("/api/test/nlp-parse", async (req, res) => {
+    try {
+      const { message } = req.body;
+      if (!message) {
+        return res.status(400).json({ error: "Message is required" });
+      }
+      
+      // Get available products for context
+      const products = await storage.getProducts();
+      
+      // Parse the inventory command
+      const result = await parseInventoryCommand(message, products);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error testing NLP parsing:", error);
+      res.status(500).json({ error: "Failed to parse inventory command" });
     }
   });
 

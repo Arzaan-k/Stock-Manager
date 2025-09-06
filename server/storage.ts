@@ -1,11 +1,13 @@
 import { 
   users, warehouses, products, warehouseStock, customers, orders, orderItems, stockMovements, whatsappLogs,
   grns, grnItems,
+  whatsappConversations, whatsappMessages,
   type User, type InsertUser, type Warehouse, type InsertWarehouse, 
   type Product, type InsertProduct, type Customer, type InsertCustomer,
   type Order, type InsertOrder, type OrderItem, type InsertOrderItem,
   type StockMovement, type InsertStockMovement, type WhatsappLog, type InsertWhatsappLog,
-  type Grn, type InsertGrn, type GrnItem, type InsertGrnItem
+  type Grn, type InsertGrn, type GrnItem, type InsertGrnItem,
+  type WhatsappConversation, type InsertWhatsappConversation, type WhatsappMessage, type InsertWhatsappMessage
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, asc, like, and, sql } from "drizzle-orm";
@@ -27,6 +29,8 @@ export interface IStorage {
   getProducts(filters?: { search?: string; category?: string; warehouseId?: string }): Promise<Product[]>;
   getProduct(id: string): Promise<Product | undefined>;
   getProductBySku(sku: string): Promise<Product | undefined>;
+  searchProducts(query: string): Promise<Product[]>;
+  searchProductsFuzzy(query: string): Promise<Product[]>;
   createProduct(product: InsertProduct): Promise<Product>;
   updateProduct(id: string, product: Partial<InsertProduct>): Promise<Product>;
   deleteProduct(id: string): Promise<void>;
@@ -71,6 +75,15 @@ export interface IStorage {
   // WhatsApp Logs
   getWhatsappLogs(): Promise<WhatsappLog[]>;
   createWhatsappLog(log: InsertWhatsappLog): Promise<WhatsappLog>;
+
+  // WhatsApp Conversations & Messages
+  getOrCreateConversation(userPhone: string): Promise<WhatsappConversation>;
+  getConversationByPhone(userPhone: string): Promise<WhatsappConversation | undefined>;
+  getConversation(conversationId: string): Promise<WhatsappConversation | undefined>;
+  updateConversation(id: string, data: Partial<InsertWhatsappConversation>): Promise<WhatsappConversation>;
+  addWhatsappMessage(msg: InsertWhatsappMessage): Promise<WhatsappMessage>;
+  listConversations(): Promise<WhatsappConversation[]>;
+  listMessages(conversationId: string): Promise<WhatsappMessage[]>;
 
   // Analytics
   getDashboardStats(): Promise<any>;
@@ -190,6 +203,101 @@ export class DatabaseStorage implements IStorage {
   async getProductBySku(sku: string): Promise<Product | undefined> {
     const [product] = await db.select().from(products).where(eq(products.sku, sku));
     return product || undefined;
+  }
+
+  async searchProducts(query: string): Promise<Product[]> {
+    // First try exact match
+    const [exactMatch] = await db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.isActive, true),
+          sql`LOWER(${products.name}) = LOWER(${query})`
+        )
+      );
+    
+    if (exactMatch) {
+      return [exactMatch];
+    }
+
+    // Try pattern match using LIKE
+    return await db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.isActive, true),
+          sql`(
+            LOWER(${products.name}) LIKE LOWER(${'%' + query + '%'}) OR
+            LOWER(${products.sku}) LIKE LOWER(${'%' + query + '%'})
+          )`
+        )
+      )
+      .orderBy(asc(products.name))
+      .limit(5);
+  }
+
+  async searchProductsFuzzy(query: string): Promise<Product[]> {
+    // Normalize the query by removing special characters and converting to lowercase
+    const normalizedQuery = query.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    
+    // Get all active products
+    const allProducts = await db
+      .select()
+      .from(products)
+      .where(eq(products.isActive, true));
+    
+    // Calculate similarity scores and filter products
+    const scoredProducts = allProducts.map(product => {
+      const normalizedName = product.name.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+      const normalizedSku = product.sku.toLowerCase();
+      
+      // Check for partial matches in name and SKU
+      const nameMatch = normalizedName.includes(normalizedQuery) || normalizedQuery.includes(normalizedName);
+      const skuMatch = normalizedSku.includes(normalizedQuery) || normalizedQuery.includes(normalizedSku);
+      
+      // Calculate Levenshtein distance for name
+      const nameDistance = this.levenshteinDistance(normalizedQuery, normalizedName);
+      const nameScore = 1 - (nameDistance / Math.max(normalizedQuery.length, normalizedName.length));
+      
+      // Calculate final score (higher is better)
+      const score = nameMatch ? 0.8 : (skuMatch ? 0.7 : nameScore);
+      
+      return { product, score };
+    });
+    
+    // Sort by score (descending) and filter out low scores
+    return scoredProducts
+      .filter(item => item.score > 0.3) // Adjust threshold as needed
+      .sort((a, b) => b.score - a.score)
+      .map(item => item.product);
+  }
+  
+  // Helper method to calculate Levenshtein distance between two strings
+  private levenshteinDistance(a: string, b: string): number {
+    const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
+    
+    for (let i = 0; i <= a.length; i++) {
+      matrix[0][i] = i;
+    }
+    
+    for (let j = 0; j <= b.length; j++) {
+      matrix[j][0] = j;
+    }
+    
+    for (let j = 1; j <= b.length; j++) {
+      for (let i = 1; i <= a.length; i++) {
+        const substitutionCost = a[i - 1] === b[j - 1] ? 0 : 1;
+        matrix[j][i] = Math.min(
+          matrix[j][i - 1] + 1, // deletion
+          matrix[j - 1][i] + 1, // insertion
+          matrix[j - 1][i - 1] + substitutionCost // substitution
+        );
+      }
+    }
+    
+    return matrix[b.length][a.length];
   }
 
   async createProduct(insertProduct: InsertProduct): Promise<Product> {
@@ -568,6 +676,49 @@ export class DatabaseStorage implements IStorage {
       .values(insertLog)
       .returning();
     return log;
+  }
+
+  async getOrCreateConversation(userPhone: string): Promise<WhatsappConversation> {
+    const existing = await this.getConversationByPhone(userPhone);
+    if (existing) return existing;
+    const [created] = await db.insert(whatsappConversations).values({ userPhone }).returning();
+    return created;
+  }
+
+  async getConversationByPhone(userPhone: string): Promise<WhatsappConversation | undefined> {
+    const [row] = await db.select().from(whatsappConversations).where(eq(whatsappConversations.userPhone, userPhone));
+    return row || undefined;
+  }
+
+  async getConversation(conversationId: string): Promise<WhatsappConversation | undefined> {
+    const [row] = await db.select().from(whatsappConversations).where(eq(whatsappConversations.id, conversationId));
+    return row || undefined;
+  }
+
+  async updateConversation(id: string, data: Partial<InsertWhatsappConversation>): Promise<WhatsappConversation> {
+    const [row] = await db
+      .update(whatsappConversations)
+      .set({ ...data, updatedAt: new Date() as any })
+      .where(eq(whatsappConversations.id, id))
+      .returning();
+    return row;
+  }
+
+  async addWhatsappMessage(msg: InsertWhatsappMessage): Promise<WhatsappMessage> {
+    const [row] = await db.insert(whatsappMessages).values(msg).returning();
+    return row;
+  }
+
+  async listConversations(): Promise<WhatsappConversation[]> {
+    return await db.select().from(whatsappConversations).orderBy(desc(whatsappConversations.updatedAt));
+  }
+
+  async listMessages(conversationId: string): Promise<WhatsappMessage[]> {
+    return await db
+      .select()
+      .from(whatsappMessages)
+      .where(eq(whatsappMessages.conversationId, conversationId))
+      .orderBy(asc(whatsappMessages.createdAt));
   }
 
   async getDashboardStats(): Promise<any> {

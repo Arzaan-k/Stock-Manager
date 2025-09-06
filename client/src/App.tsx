@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -7,6 +7,8 @@ import { CartProvider } from "@/hooks/useCart";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/useAuth";
 import Layout from "@/components/Layout";
+// WebSocket client import commented out due to compilation errors
+// import { webSocketClient } from "./lib/websocket";
 
 // Pages
 import Dashboard from "@/pages/Dashboard";
@@ -138,6 +140,16 @@ function AppRouter() {
 }
 
 function App() {
+  // WebSocket initialization commented out due to compilation errors
+  // useEffect(() => {
+  //   // Initialize WebSocket connection for real-time updates
+  //   webSocketClient.connect();
+  //   
+  //   return () => {
+  //     webSocketClient.disconnect();
+  //   };
+  // }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <CartProvider>

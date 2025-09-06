@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { api } from "@/lib/api";
+import { formatCurrency } from "@/lib/currency";
 import {
   Package,
   Plus,
@@ -734,7 +735,7 @@ export default function Products() {
                           </div>
                         </td>
                         <td className="p-4 text-sm font-medium text-foreground" data-testid={`text-product-price-${product.id}`}>
-                          ${parseFloat(product.price || "0").toFixed(2)}
+                          {formatCurrency(parseFloat(product.price || "0"))}
                         </td>
                         <td className="p-4">
                           <Badge variant={stockStatus.variant} data-testid={`badge-product-status-${product.id}`}>

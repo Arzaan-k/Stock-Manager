@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatCurrency } from "@/lib/currency";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import ProductCard from "@/components/ProductCard";
@@ -63,16 +64,16 @@ export default function Catalog() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      <div className="space-y-4 sm:space-y-6">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
           {[...Array(8)].map((_, i) => (
             <Card key={i} className="overflow-hidden">
               <div className="aspect-square bg-muted animate-pulse" />
-              <CardContent className="p-4 space-y-2">
-                <div className="h-4 bg-muted rounded animate-pulse" />
+              <CardContent className="p-3 sm:p-4 space-y-2">
+                <div className="h-3 sm:h-4 bg-muted rounded animate-pulse" />
                 <div className="h-3 bg-muted rounded w-3/4 animate-pulse" />
-                <div className="h-6 bg-muted rounded w-1/2 animate-pulse" />
-                <div className="h-8 bg-muted rounded animate-pulse" />
+                <div className="h-5 sm:h-6 bg-muted rounded w-1/2 animate-pulse" />
+                <div className="h-7 sm:h-8 bg-muted rounded animate-pulse" />
               </CardContent>
             </Card>
           ))}
@@ -82,7 +83,7 @@ export default function Catalog() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col md:flex-row md:items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-foreground">Product Catalog</h2>
@@ -136,9 +137,9 @@ export default function Catalog() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Prices</SelectItem>
-                <SelectItem value="0-50">$0 - $50</SelectItem>
-                <SelectItem value="50-200">$50 - $200</SelectItem>
-                <SelectItem value="200+">$200+</SelectItem>
+                <SelectItem value="0-50">{formatCurrency(0)} - {formatCurrency(50)}</SelectItem>
+                <SelectItem value="50-200">{formatCurrency(50)} - {formatCurrency(200)}</SelectItem>
+                <SelectItem value="200+">{formatCurrency(200)}+</SelectItem>
               </SelectContent>
             </Select>
 
@@ -200,8 +201,8 @@ export default function Catalog() {
       {filteredProducts.length > 0 ? (
         <div className={cn(
           viewMode === "grid" 
-            ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-            : "space-y-4"
+            ? "grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6"
+            : "space-y-3 sm:space-y-4"
         )}>
           {filteredProducts.map((product: any) => (
             viewMode === "grid" ? (
@@ -250,7 +251,7 @@ export default function Catalog() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
                           <span className="text-lg font-bold text-foreground" data-testid={`text-list-product-price-${product.id}`}>
-                            ${parseFloat(product.price || "0").toFixed(2)}
+                            {formatCurrency(parseFloat(product.price || "0"))}
                           </span>
                           <span className="text-sm text-muted-foreground" data-testid={`text-list-product-stock-${product.id}`}>
                             {product.stockAvailable} available

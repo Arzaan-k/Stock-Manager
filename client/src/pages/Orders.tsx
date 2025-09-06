@@ -12,6 +12,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { api } from "@/lib/api";
+import { formatCurrency } from "@/lib/currency";
 import {
   FileText,
   Eye,
@@ -19,7 +20,6 @@ import {
   Package,
   User,
   Calendar,
-  DollarSign,
   MapPin,
   Clock,
 } from "lucide-react";
@@ -285,7 +285,7 @@ export default function Orders() {
                           {orderData.itemCount} items
                         </td>
                         <td className="p-3 font-medium text-foreground" data-testid={`text-order-total-${order.id}`}>
-                          ${parseFloat(order.total).toFixed(2)}
+                          {formatCurrency(parseFloat(order.total))}
                         </td>
                         <td className="p-3">
                           <Badge variant={getStatusColor(order.status)} data-testid={`badge-order-status-${order.id}`}>
@@ -382,10 +382,10 @@ export default function Orders() {
                                             </div>
                                             <div className="text-right">
                                               <p className="text-sm text-muted-foreground">
-                                                {item.orderItem.quantity} × ${parseFloat(item.orderItem.unitPrice).toFixed(2)}
+                                                {item.orderItem.quantity} × {formatCurrency(parseFloat(item.orderItem.unitPrice))}
                                               </p>
                                               <p className="font-medium text-foreground" data-testid={`detail-item-total-${item.orderItem.id}`}>
-                                                ${parseFloat(item.orderItem.totalPrice).toFixed(2)}
+                                                {formatCurrency(parseFloat(item.orderItem.totalPrice))}
                                               </p>
                                             </div>
                                           </div>
@@ -400,19 +400,19 @@ export default function Orders() {
                                       <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">Subtotal:</span>
                                         <span className="text-foreground" data-testid={`detail-subtotal-${order.id}`}>
-                                          ${parseFloat(orderDetails.subtotal).toFixed(2)}
+                                          {formatCurrency(parseFloat(orderDetails.subtotal))}
                                         </span>
                                       </div>
                                       <div className="flex justify-between text-sm">
                                         <span className="text-muted-foreground">Tax:</span>
                                         <span className="text-foreground" data-testid={`detail-tax-${order.id}`}>
-                                          ${parseFloat(orderDetails.tax).toFixed(2)}
+                                          {formatCurrency(parseFloat(orderDetails.tax))}
                                         </span>
                                       </div>
                                       <div className="flex justify-between font-semibold border-t border-border pt-2">
                                         <span className="text-foreground">Total:</span>
                                         <span className="text-foreground" data-testid={`detail-total-${order.id}`}>
-                                          ${parseFloat(orderDetails.total).toFixed(2)}
+                                          {formatCurrency(parseFloat(orderDetails.total))}
                                         </span>
                                       </div>
                                     </div>

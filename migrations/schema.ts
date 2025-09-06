@@ -196,3 +196,39 @@ export const whatsappLogs = pgTable("whatsapp_logs", {
 			name: "whatsapp_logs_product_id_products_id_fk"
 		}),
 ]);
+
+export const whatsappConversations = pgTable("whatsapp_conversations", {
+	id: varchar().default(gen_random_uuid()).primaryKey().notNull(),
+	userPhone: text("user_phone").notNull(),
+	status: text().default('open').notNull(),
+	assignedToUserId: varchar("assigned_to_user_id"),
+	state: jsonb(),
+	createdAt: timestamp("created_at", { mode: 'string' }).defaultNow().notNull(),
+	updatedAt: timestamp("updated_at", { mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.assignedToUserId],
+			foreignColumns: [users.id],
+			name: "whatsapp_conversations_assigned_to_user_id_users_id_fk"
+		}),
+]);
+
+export const whatsappMessages = pgTable("whatsapp_messages", {
+	id: varchar().default(gen_random_uuid()).primaryKey().notNull(),
+	conversationId: varchar("conversation_id").notNull(),
+	direction: text().notNull(),
+	sender: text().notNull(),
+	body: text().notNull(),
+	meta: jsonb(),
+	createdAt: timestamp("created_at", { mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	foreignKey({
+			columns: [table.conversationId],
+			foreignColumns: [whatsappConversations.id],
+			name: "whatsapp_messages_conversation_id_whatsapp_conversations_id_fk"
+		}).onDelete("cascade"),
+]);
+
+function gen_random_uuid() {
+	return sql`gen_random_uuid()`
+}

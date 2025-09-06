@@ -18,7 +18,7 @@ import {
   Plus,
   MapPin,
   Package,
-  DollarSign,
+  IndianRupee,
   Eye,
   Edit,
   Users,
@@ -237,7 +237,7 @@ export default function Warehouses() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-muted-foreground flex items-center">
-                      <DollarSign className="w-4 h-4 mr-1" />
+                      <IndianRupee className="w-4 h-4 mr-1" />
                       Stock Value
                     </span>
                     <span className="font-medium text-foreground">-</span>

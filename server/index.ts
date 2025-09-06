@@ -3,6 +3,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { storage } from "./storage";
+// import { WebSocketService } from "./websocket";
 
 const app = express();
 app.use(express.json());
@@ -40,6 +41,12 @@ app.use((req, res, next) => {
 
 (async () => {
   const server = await registerRoutes(app);
+  
+  // WebSocket service temporarily disabled due to compilation issues
+  // const webSocketService = new WebSocketService(server);
+  // 
+  // // Make WebSocket service available globally
+  // (global as any).webSocketService = webSocketService;
 
   // Ensure a default admin user exists for easy login in development/demo
   try {

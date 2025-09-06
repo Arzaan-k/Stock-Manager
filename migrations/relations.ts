@@ -1,5 +1,5 @@
 import { relations } from "drizzle-orm/relations";
-import { customers, orders, orderItems, products, stockMovements, warehouses, users, warehouseStock, whatsappLogs } from "./schema";
+import { customers, orders, orderItems, products, stockMovements, warehouses, users, warehouseStock, whatsappLogs, whatsappConversations, whatsappMessages } from "./schema";
 
 export const ordersRelations = relations(orders, ({one, many}) => ({
 	customer: one(customers, {
@@ -58,6 +58,7 @@ export const warehousesRelations = relations(warehouses, ({many}) => ({
 
 export const usersRelations = relations(users, ({many}) => ({
 	stockMovements: many(stockMovements),
+	whatsappConversations: many(whatsappConversations),
 }));
 
 export const warehouseStockRelations = relations(warehouseStock, ({one}) => ({
@@ -75,5 +76,20 @@ export const whatsappLogsRelations = relations(whatsappLogs, ({one}) => ({
 	product: one(products, {
 		fields: [whatsappLogs.productId],
 		references: [products.id]
+	}),
+}));
+
+export const whatsappConversationsRelations = relations(whatsappConversations, ({one, many}) => ({
+	assignedTo: one(users, {
+		fields: [whatsappConversations.assignedToUserId],
+		references: [users.id]
+	}),
+	messages: many(whatsappMessages),
+}));
+
+export const whatsappMessagesRelations = relations(whatsappMessages, ({one}) => ({
+	conversation: one(whatsappConversations, {
+		fields: [whatsappMessages.conversationId],
+		references: [whatsappConversations.id]
 	}),
 }));

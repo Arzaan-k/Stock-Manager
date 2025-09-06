@@ -4,7 +4,8 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, FileText, User, Package, DollarSign, Calendar, MapPin } from "lucide-react";
+import { ArrowLeft, FileText, User, Package, Calendar, MapPin } from "lucide-react";
+import { formatCurrency } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useState } from "react";
@@ -137,8 +138,8 @@ export default function OrderDetail() {
                       <div className="text-xs text-muted-foreground">SKU: {item.product?.sku}</div>
                     </div>
                     <div className="text-right text-sm">
-                      <div>{item.orderItem.quantity} × ${parseFloat(item.orderItem.unitPrice).toFixed(2)}</div>
-                      <div className="font-semibold">${parseFloat(item.orderItem.totalPrice).toFixed(2)}</div>
+                      <div>{item.orderItem.quantity} × {formatCurrency(parseFloat(item.orderItem.unitPrice))}</div>
+                      <div className="font-semibold">{formatCurrency(parseFloat(item.orderItem.totalPrice))}</div>
                     </div>
                   </div>
                 ))}
@@ -149,9 +150,9 @@ export default function OrderDetail() {
 
             {/* Totals */}
             <div className="space-y-2 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>${parseFloat(order.subtotal).toFixed(2)}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>${parseFloat(order.tax).toFixed(2)}</span></div>
-              <div className="flex justify-between font-semibold border-t pt-2"><span>Total</span><span className="inline-flex items-center gap-1"><DollarSign className="w-4 h-4"/>{parseFloat(order.total).toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span>{formatCurrency(parseFloat(order.subtotal))}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Tax</span><span>{formatCurrency(parseFloat(order.tax))}</span></div>
+              <div className="flex justify-between font-semibold border-t pt-2"><span>Total</span><span>{formatCurrency(parseFloat(order.total))}</span></div>
             </div>
 
             {/* Purchase Order actions */}
