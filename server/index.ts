@@ -48,6 +48,14 @@ app.use((req, res, next) => {
   // // Make WebSocket service available globally
   // (global as any).webSocketService = webSocketService;
 
+  // Initialize permissions and roles
+  try {
+    await storage.initializePermissions();
+    log("Permissions initialized successfully");
+  } catch (e) {
+    log("Warning: failed to initialize permissions");
+  }
+
   // Ensure a default admin user exists for easy login in development/demo
   try {
     const admin = await storage.getUserByUsername("admin");
@@ -63,8 +71,22 @@ app.use((req, res, next) => {
       await storage.updateUser(admin.id, { password: "admin" });
       log("Updated admin user's password to default 'admin'");
     }
+
+    // Create a default employee user for testing
+    const employee = await storage.getUserByUsername("employee");
+    if (!employee) {
+      await storage.createUser({
+        username: "employee",
+        email: "employee@example.com",
+        password: "employee",
+        role: "employee",
+        firstName: "John",
+        lastName: "Doe"
+      });
+      log("Seeded default employee user (username: employee, password: employee)");
+    }
   } catch (e) {
-    log("Warning: failed to ensure default admin user");
+    log("Warning: failed to ensure default users");
   }
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

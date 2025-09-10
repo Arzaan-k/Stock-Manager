@@ -9,6 +9,17 @@ import {
   type Grn, type InsertGrn, type GrnItem, type InsertGrnItem,
   type WhatsappConversation, type InsertWhatsappConversation, type WhatsappMessage, type InsertWhatsappMessage
 } from "@shared/schema";
+// Define RBAC table references directly
+const permissions = {
+  id: 'id',
+  name: 'name',
+  resource: 'resource', 
+  action: 'action'
+};
+const rolePermissions = {
+  role: 'role',
+  permissionId: 'permission_id'
+};
 import { db } from "./db";
 import { eq, desc, asc, like, and, sql } from "drizzle-orm";
 
@@ -88,6 +99,11 @@ export interface IStorage {
   // Analytics
   getDashboardStats(): Promise<any>;
   getLowStockProducts(): Promise<Product[]>;
+
+  // Permissions and Roles
+  initializePermissions(): Promise<void>;
+  getUserPermissions(userId: string): Promise<string[]>;
+  hasPermission(userId: string, resource: string, action: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -762,6 +778,55 @@ export class DatabaseStorage implements IStorage {
         sql`${products.stockAvailable} <= ${products.minStockLevel}`
       ))
       .orderBy(asc(products.stockAvailable));
+  }
+
+  async initializePermissions(): Promise<void> {
+    try {
+      // Check if permissions table exists and has data
+      const result = await db.execute(sql`SELECT COUNT(*) as count FROM permissions`);
+      const count = result.rows[0]?.count || 0;
+      
+      if (count > 0) {
+        console.log('Permissions already initialized');
+        return;
+      }
+      
+      console.log('Permissions table empty or missing - please run setup script');
+    } catch (error) {
+      console.error('Error checking permissions:', error);
+    }
+  }
+
+  async getUserPermissions(userId: string): Promise<string[]> {
+    const user = await this.getUser(userId);
+    if (!user) return [];
+
+    const result = await db.execute(sql`
+      SELECT p.name
+      FROM role_permissions rp
+      INNER JOIN permissions p ON rp.permission_id = p.id
+      WHERE rp.role = ${user.role}
+    `);
+
+    return result.rows.map((row: any) => row.name);
+  }
+
+  async hasPermission(userId: string, resource: string, action: string): Promise<boolean> {
+    const user = await this.getUser(userId);
+    if (!user) return false;
+    
+    if (user.role === 'admin') return true; // Admin has all permissions
+
+    const result = await db.execute(sql`
+      SELECT 1
+      FROM permissions p
+      INNER JOIN role_permissions rp ON p.id = rp.permission_id
+      WHERE p.resource = ${resource}
+        AND p.action = ${action}
+        AND rp.role = ${user.role}
+    `);
+
+    return result.rows.length > 0;
   }
 }
 

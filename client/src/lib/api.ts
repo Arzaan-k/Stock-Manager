@@ -24,6 +24,19 @@ export const api = {
   createProduct: (product: any) => apiRequest("POST", "/api/products", product),
   updateProduct: (id: string, product: any) => apiRequest("PUT", `/api/products/${id}`, product),
   deleteProduct: (id: string) => apiRequest("DELETE", `/api/products/${id}`),
+  // Product images
+  uploadProductImage: async (id: string, file: File) => {
+    const form = new FormData();
+    form.append('image', file);
+    const res = await fetch(`/api/products/${id}/images`, {
+      method: 'POST',
+      body: form,
+    });
+    return res;
+  },
+  uploadProductImageFromUrl: (id: string, imageUrl: string) => apiRequest("POST", `/api/products/${id}/images/from-url`, { imageUrl }),
+  getProductImages: (id: string) => apiRequest("GET", `/api/products/${id}/images`),
+  deleteProductImage: (id: string, imageUrl: string) => apiRequest("DELETE", `/api/products/${id}/images`, { imageUrl }),
   updateStock: (id: string, data: any) => apiRequest("POST", `/api/products/${id}/stock`, data),
   importProductsCSV: (payload: { csv: string; warehouseId?: string }) => apiRequest("POST", "/api/products/import-csv", payload),
 

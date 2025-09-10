@@ -8,15 +8,30 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 // Conversation state management
 interface ConversationState {
   userId: string;
-  currentFlow: 'idle' | 'checking_stock' | 'adding_stock' | 'creating_order' | 'removing_stock';
+  userName?: string;
+  currentFlow: 'idle' | 'checking_stock' | 'adding_stock' | 'creating_order' | 'removing_stock' | 'awaiting_user_name' | 'collecting_order_details';
   pendingOrder?: {
     items: Array<{
       productName: string;
+      productId?: string;
       sku: string;
       quantity: number;
       confirmed: boolean;
     }>;
-    step: 'collecting_items' | 'confirming_details' | 'processing';
+    customerName?: string;
+    customerPhone?: string;
+    customerEmail?: string;
+    containerNumber?: string;
+    jobId?: string;
+    purchaserName?: string;
+    step: 'collecting_items' | 'collecting_customer_info' | 'confirming_details' | 'processing';
+  };
+  pendingStockAddition?: {
+    productId: string;
+    productName: string;
+    quantity: number;
+    addedBy?: string;
+    confirmed: boolean;
   };
   lastContext?: any;
   conversationHistory: Array<{
@@ -123,9 +138,11 @@ export async function generateWhatsAppResponse(
   context: any, 
   userId: string = 'default'
 ): Promise<{response: string, pendingAction?: { 
-  type: 'add_stock' | 'use_stock' | 'confirm_stock',
+  type: 'add_stock' | 'use_stock' | 'confirm_stock' | 'create_order' | 'request_user_name' | 'collect_order_details',
   productId?: string,
-  quantity?: number
+  quantity?: number,
+  orderData?: any,
+  stockData?: any
 }}> {
   try {
     const state = getConversationState(userId);

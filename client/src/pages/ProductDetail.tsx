@@ -5,8 +5,9 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Package, ArrowLeft, Warehouse, History } from "lucide-react";
+import { Package, ArrowLeft, Warehouse, History, Users, Phone, MapPin, Image as ImageIcon } from "lucide-react";
 import { formatCurrency } from "@/lib/currency";
+import { ProductImageUpload } from "@/components/product-image-upload";
 
 export default function ProductDetail() {
   const [match, params] = useRoute("/products/:id");
@@ -15,6 +16,17 @@ export default function ProductDetail() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/products", productId, "usage"],
     queryFn: () => api.getProductUsage(productId!).then(res => res.json()),
+    enabled: !!productId,
+  });
+
+  // Fetch vendor information for this product
+  const { data: vendorData } = useQuery({
+    queryKey: ["/api/products", productId, "vendors"],
+    queryFn: async () => {
+      const response = await fetch(`/api/products/${productId}/vendors`);
+      if (!response.ok) return [];
+      return response.json();
+    },
     enabled: !!productId,
   });
 
@@ -156,12 +168,97 @@ export default function ProductDetail() {
           </CardContent>
         </Card>
 
-        {/* Right: Per-warehouse stock */}
-        <Card>
+        {/* Product Images Section */}
+        <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base"><Warehouse className="w-4 h-4"/>Warehouse Stock</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <ImageIcon className="w-5 h-5" />
+              Product Images
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent>
+            {productId && (
+              <ProductImageUpload 
+                productId={productId} 
+                productName={product?.name || ''} 
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Right: Vendor and Warehouse Info */}
+        <div className="space-y-6">
+          {/* Vendor Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Users className="w-4 h-4"/>Vendors
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!vendorData || vendorData.length === 0 ? (
+                <div className="text-sm text-muted-foreground">No vendors assigned.</div>
+              ) : (
+                <div className="space-y-3">
+                  {vendorData.slice(0, 3).map((item: any) => (
+                    <div key={item.vendorProduct?.id || item.vendor?.id} className="border rounded p-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <Link href={`/vendors/${item.vendor?.id}`}>
+                            <a className="font-medium text-sm hover:underline">
+                              {item.vendor?.name}
+                            </a>
+                          </Link>
+                          {item.vendor?.city && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                              <MapPin className="w-3 h-3" />
+                              {item.vendor?.city}, {item.vendor?.state}
+                            </div>
+                          )}
+                          {item.vendor?.contactNumber && (
+                            <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
+                              <Phone className="w-3 h-3" />
+                              {item.vendor?.contactNumber}
+                            </div>
+                          )}
+                        </div>
+                        {item.vendorProduct?.isPreferred && (
+                          <Badge variant="secondary" className="text-xs">Preferred</Badge>
+                        )}
+                      </div>
+                      {item.vendorProduct && (
+                        <div className="mt-2 pt-2 border-t text-xs space-y-1">
+                          {item.vendorProduct.price && (
+                            <div><span className="text-muted-foreground">Price:</span> ₹{item.vendorProduct.price}</div>
+                          )}
+                          {item.vendorProduct.leadTimeDays && (
+                            <div><span className="text-muted-foreground">Lead Time:</span> {item.vendorProduct.leadTimeDays} days</div>
+                          )}
+                          {item.vendorProduct.minimumOrderQuantity && (
+                            <div><span className="text-muted-foreground">MOQ:</span> {item.vendorProduct.minimumOrderQuantity}</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {vendorData.length > 3 && (
+                    <div className="text-xs text-center text-muted-foreground">
+                      +{vendorData.length - 3} more vendors
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Warehouse Stock */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Warehouse className="w-4 h-4"/>Warehouse Stock
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
             {warehouseStock.length === 0 ? (
               <div className="text-sm text-muted-foreground">No warehouse stock records.</div>
             ) : (
@@ -184,6 +281,7 @@ export default function ProductDetail() {
             )}
           </CardContent>
         </Card>
+        </div>
       </div>
 
       {/* Usage History: Movements and Orders */}

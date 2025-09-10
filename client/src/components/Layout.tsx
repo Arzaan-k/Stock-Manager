@@ -16,20 +16,28 @@ import {
   X,
   User,
   LogOut,
+  Users,
 } from "lucide-react";
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
-const navigation = [
+const adminNavigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Products", href: "/products", icon: Package },
   { name: "Product Catalog", href: "/catalog", icon: ShoppingBag },
   { name: "Orders", href: "/orders", icon: FileText },
   { name: "Warehouses", href: "/warehouses", icon: Building2 },
+  { name: "Vendors", href: "/vendors", icon: Users },
   { name: "WhatsApp AI", href: "/whatsapp", icon: MessageCircle },
   { name: "Analytics", href: "/analytics", icon: BarChart3 },
+];
+
+const employeeNavigation = [
+  { name: "Product Catalog", href: "/catalog", icon: ShoppingBag },
+  { name: "Vendors", href: "/vendors", icon: Users },
+  { name: "My Orders", href: "/orders", icon: FileText },
 ];
 
 const pageInfo = {
@@ -39,6 +47,7 @@ const pageInfo = {
   "/cart": { title: "Shopping Cart", subtitle: "Review your items before checkout" },
   "/orders": { title: "Orders", subtitle: "Track and manage customer orders" },
   "/warehouses": { title: "Warehouses", subtitle: "Manage warehouse locations and stock" },
+  "/vendors": { title: "Vendors", subtitle: "Manage your suppliers and vendors" },
   "/whatsapp": { title: "WhatsApp AI", subtitle: "AI-powered inventory updates" },
   "/analytics": { title: "Analytics", subtitle: "Insights and performance reports" },
 };
@@ -49,6 +58,11 @@ export default function Layout({ children }: LayoutProps) {
   const { getTotalItems } = useCart();
   const { user, logout } = useAuth();
 
+  // Determine navigation based on user role
+  const navigation = user?.role === 'employee' ? employeeNavigation : adminNavigation;
+  
+  // Employee dashboard redirect
+  const isEmployee = user?.role === 'employee';
   const currentPageInfo = pageInfo[location as keyof typeof pageInfo] || pageInfo["/"];
 
   return (
@@ -176,14 +190,28 @@ export default function Layout({ children }: LayoutProps) {
                   </a>
                 </Link>
               </div>
-              <Link href="/orders/new">
-                <a
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
-                  data-testid="button-create-order"
-                >
-                  Create Order
-                </a>
-              </Link>
+              {/* Show Create Order button only for admin */}
+              {!isEmployee && (
+                <Link href="/orders/new">
+                  <a
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
+                    data-testid="button-create-order"
+                  >
+                    Create Order
+                  </a>
+                </Link>
+              )}
+              {/* For employees, show Go to Cart button when cart has items */}
+              {isEmployee && getTotalItems() > 0 && (
+                <Link href="/cart">
+                  <a
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:bg-primary/90"
+                    data-testid="button-checkout"
+                  >
+                    Checkout ({getTotalItems()})
+                  </a>
+                </Link>
+              )}
             </div>
           </div>
         </header>

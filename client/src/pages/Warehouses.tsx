@@ -22,6 +22,8 @@ import {
   Eye,
   Edit,
   Users,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 
 const warehouseSchema = z.object({
@@ -55,6 +57,30 @@ export default function Warehouses() {
     },
     onError: () => {
       toast({ title: "Failed to create warehouse", variant: "destructive" });
+    },
+  });
+
+  const deleteWarehouseMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`/api/warehouses/${id}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(error);
+      }
+      return response;
+    },
+    onSuccess: () => {
+      toast({ title: "Warehouse deleted successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/warehouses"] });
+    },
+    onError: (error: any) => {
+      toast({ 
+        title: "Failed to delete warehouse", 
+        description: error.message || "Cannot delete warehouse with existing inventory",
+        variant: "destructive" 
+      });
     },
   });
 
@@ -245,17 +271,17 @@ export default function Warehouses() {
                 </div>
               </div>
               
-              <div className="mt-4 pt-4 border-t border-border">
+              <div className="mt-4 pt-4 border-t border-border flex gap-2">
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button
                       variant="ghost"
-                      className="w-full justify-center"
+                      className="flex-1 justify-center"
                       onClick={() => setSelectedWarehouse(warehouse)}
                       data-testid={`button-view-warehouse-${warehouse.id}`}
                     >
                       <Eye className="w-4 h-4 mr-2" />
-                      View Details
+                      View
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="max-w-4xl">
@@ -329,6 +355,19 @@ export default function Warehouses() {
                     </div>
                   </DialogContent>
                 </Dialog>
+                <Button
+                  variant="ghost"
+                  className="flex-1 justify-center text-destructive hover:text-destructive"
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to delete ${warehouse.name}?\n\nThis action cannot be undone and will fail if there is inventory in this warehouse.`)) {
+                      deleteWarehouseMutation.mutate(warehouse.id);
+                    }
+                  }}
+                  data-testid={`button-delete-warehouse-${warehouse.id}`}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete
+                </Button>
               </div>
             </CardContent>
           </Card>

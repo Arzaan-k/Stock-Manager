@@ -1,13 +1,45 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
+import * as path from "path";
 import { storage } from "./storage";
+import { db } from "./db";
 import { whatsappService } from "./services/whatsapp";
+import { enhancedWhatsAppService } from "./services/whatsapp-enhanced";
 import { parseInventoryCommand } from "./services/gemini";
 import { z } from "zod";
-import { insertProductSchema, insertOrderSchema, insertOrderItemSchema, insertCustomerSchema, insertWarehouseSchema } from "@shared/schema";
+import { insertProductSchema, insertOrderSchema, insertOrderItemSchema, insertCustomerSchema, insertWarehouseSchema, users } from "@shared/schema";
+import { sql } from "drizzle-orm";
 import { streamPurchaseOrderPdf } from "./services/po";
+import { registerVendorRoutes } from "./routes/vendors";
+import { registerEmployeeRoutes } from "./routes/employee";
+import { authenticate, authorize, AuthenticatedRequest } from "./auth/middleware";
+import { imageRecognitionService } from "./services/image-recognition";
+import { productImageManager } from "./services/product-image-manager";
+import multer from "multer";
+
+// Configure multer for image uploads
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Register vendor routes
+  registerVendorRoutes(app);
+  
+  // Register employee routes
+  registerEmployeeRoutes(app);
+  
   // Auth routes
   app.post("/api/auth/login", async (req, res) => {
     try {
@@ -20,11 +52,174 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
-      // In production, use proper JWT token
-      res.json({ user: { ...user, password: undefined }, token: "mock-jwt-token" });
+      if (!user.isActive) {
+        return res.status(401).json({ error: "Account is inactive" });
+      }
+
+      // Get user permissions
+      const permissions = await storage.getUserPermissions(user.id);
+
+      const userResponse = {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        permissions
+      };
+
+      // For development, use mock token; in production, use proper JWT
+      const token = process.env.NODE_ENV === 'production' 
+        ? require('jsonwebtoken').sign(
+            { userId: user.id, username: user.username, role: user.role }, 
+            process.env.JWT_SECRET || 'your-secret-key',
+            { expiresIn: '24h' }
+          )
+        : "mock-jwt-token";
+      
+      res.json({ user: userResponse, token });
     } catch (error) {
       console.error("/api/auth/login error", error);
       res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // User registration (admin only)
+  app.post("/api/auth/register", authenticate, authorize('users', 'create'), async (req: AuthenticatedRequest, res) => {
+    try {
+      const { username, email, password, role, firstName, lastName } = req.body;
+      
+      if (!username || !email || !password) {
+        return res.status(400).json({ error: "Username, email, and password are required" });
+      }
+
+      // Check if user already exists
+      const existingUser = await storage.getUserByUsername(username);
+      if (existingUser) {
+        return res.status(400).json({ error: "Username already exists" });
+      }
+
+      const newUser = await storage.createUser({
+        username,
+        email,
+        password, // In production, this should be hashed
+        role: role || 'employee',
+        firstName,
+        lastName
+      });
+
+      res.status(201).json({
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          email: newUser.email,
+          role: newUser.role,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName
+        },
+        message: 'User created successfully'
+      });
+    } catch (error) {
+      console.error("/api/auth/register error", error);
+      res.status(500).json({ error: "Registration failed" });
+    }
+  });
+
+  // Employee self-registration (no authentication required)
+  app.post("/api/auth/employee-register", async (req, res) => {
+    try {
+      const { name, email, mobile, password } = req.body;
+      
+      if (!name || !email || !mobile || !password) {
+        return res.status(400).json({ error: "Name, email, mobile number, and password are required" });
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: "Please provide a valid email address" });
+      }
+
+      // Validate mobile number (basic validation)
+      const mobileRegex = /^[+]?[\d\s\-\(\)]{10,15}$/;
+      if (!mobileRegex.test(mobile.replace(/\s/g, ''))) {
+        return res.status(400).json({ error: "Please provide a valid mobile number" });
+      }
+
+      // Check if user already exists (email, mobile, or username)
+      const existingUserByEmail = await storage.getUserByUsername(email); // We can check by email too
+      const existingUsers = await db.select().from(users).where(
+        sql`${users.email} = ${email} OR ${users.mobile} = ${mobile}`
+      );
+      
+      if (existingUsers.length > 0) {
+        return res.status(400).json({ error: "An account with this email or mobile number already exists" });
+      }
+
+      // Extract first name and last name from name
+      const nameParts = name.trim().split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+      
+      // Generate username from email (part before @)
+      const username = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+      
+      // Check if username exists, if so, add a number
+      let finalUsername = username;
+      let counter = 1;
+      while (await storage.getUserByUsername(finalUsername)) {
+        finalUsername = `${username}${counter}`;
+        counter++;
+      }
+
+      const newUser = await storage.createUser({
+        username: finalUsername,
+        email,
+        mobile,
+        password, // In production, this should be hashed
+        role: 'employee', // Default role for self-registration
+        firstName,
+        lastName
+      });
+
+      res.status(201).json({
+        user: {
+          id: newUser.id,
+          username: newUser.username,
+          email: newUser.email,
+          mobile: newUser.mobile,
+          role: newUser.role,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName
+        },
+        message: 'Employee account created successfully. You can now login with your credentials.'
+      });
+    } catch (error) {
+      console.error("/api/auth/employee-register error", error);
+      if (error.message && error.message.includes('duplicate key')) {
+        return res.status(400).json({ error: "An account with these details already exists" });
+      }
+      res.status(500).json({ error: "Registration failed" });
+    }
+  });
+
+  // Get current user info
+  app.get("/api/auth/me", authenticate, async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const permissions = await storage.getUserPermissions(req.user.id);
+      
+      res.json({
+        user: req.user,
+        permissions
+      });
+    } catch (error) {
+      console.error("/api/auth/me error", error);
+      res.status(500).json({ error: "Failed to fetch user info" });
     }
   });
 
@@ -573,14 +768,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // WhatsApp webhook routes
+  // WhatsApp webhook routes - use enhanced service for better conversation handling
   app.get("/api/whatsapp/webhook", async (req, res) => {
     try {
       const mode = req.query["hub.mode"];
       const token = req.query["hub.verify_token"];
       const challenge = req.query["hub.challenge"];
 
-      const result = await whatsappService.verifyWebhook(mode as string, token as string, challenge as string);
+      // Use enhanced service for verification
+      const result = await enhancedWhatsAppService.verifyWebhook(mode as string, token as string, challenge as string);
       
       if (result) {
         res.status(200).send(result);
@@ -594,7 +790,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/whatsapp/webhook", async (req, res) => {
     try {
-      await whatsappService.processIncomingMessage(req.body);
+      // Use enhanced service for processing messages with better flow handling
+      await enhancedWhatsAppService.processIncomingMessage(req.body);
       res.status(200).send("OK");
     } catch (error) {
       console.error("WhatsApp webhook error:", error);
@@ -606,7 +803,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/whatsapp/conversations", async (req, res) => {
     try {
       const { status, search } = req.query as Record<string, string>;
-      const list = await storage.listConversations({ status, search });
+      const list = await storage.listConversations();
       res.json(list);
     } catch (error) {
       console.error("GET /api/whatsapp/conversations error", error);
@@ -743,6 +940,222 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to parse inventory command" });
     }
   });
+
+  // Image Recognition and Product Image Management Routes
+  
+  // Upload product image
+  app.post("/api/products/:id/images", upload.single('image'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No image file provided" });
+      }
+
+      const productId = req.params.id;
+      const result = await productImageManager.saveProductImage(productId, req.file.buffer);
+      
+      if (result.success) {
+        res.status(201).json({
+          success: true,
+          imageUrl: result.imageUrl,
+          message: "Image uploaded and indexed successfully"
+        });
+      } else {
+        res.status(400).json({ success: false, error: result.error });
+      }
+    } catch (error) {
+      console.error("Error uploading product image:", error);
+      res.status(500).json({ error: "Failed to upload image" });
+    }
+  });
+
+  // Upload product image from URL
+  app.post("/api/products/:id/images/from-url", async (req, res) => {
+    try {
+      const { imageUrl } = req.body;
+      if (!imageUrl) {
+        return res.status(400).json({ error: "Image URL is required" });
+      }
+
+      const productId = req.params.id;
+      const result = await productImageManager.saveProductImageFromUrl(productId, imageUrl);
+      
+      if (result.success) {
+        res.status(201).json({
+          success: true,
+          imageUrl: result.localImageUrl,
+          message: "Image downloaded and indexed successfully"
+        });
+      } else {
+        res.status(400).json({ success: false, error: result.error });
+      }
+    } catch (error) {
+      console.error("Error uploading product image from URL:", error);
+      res.status(500).json({ error: "Failed to upload image from URL" });
+    }
+  });
+
+  // Get product images
+  app.get("/api/products/:id/images", async (req, res) => {
+    try {
+      const productId = req.params.id;
+      const images = await productImageManager.getProductImages(productId);
+      res.json(images);
+    } catch (error) {
+      console.error("Error getting product images:", error);
+      res.status(500).json({ error: "Failed to get product images" });
+    }
+  });
+
+  // Delete product image
+  app.delete("/api/products/:id/images", async (req, res) => {
+    try {
+      const { imageUrl } = req.body;
+      if (!imageUrl) {
+        return res.status(400).json({ error: "Image URL is required" });
+      }
+
+      const productId = req.params.id;
+      const result = await productImageManager.deleteProductImage(productId, imageUrl);
+      
+      if (result.success) {
+        res.json({ success: true, message: "Image deleted successfully" });
+      } else {
+        res.status(400).json({ success: false, error: result.error });
+      }
+    } catch (error) {
+      console.error("Error deleting product image:", error);
+      res.status(500).json({ error: "Failed to delete image" });
+    }
+  });
+
+  // Process image for product identification
+  app.post("/api/image-recognition/identify", upload.single('image'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No image file provided" });
+      }
+
+      const result = await imageRecognitionService.processImageBuffer(req.file.buffer);
+      
+      res.json({
+        success: result.success,
+        matches: result.matches,
+        extractedText: result.extractedText,
+        processingTime: result.processingTime,
+        error: result.error
+      });
+    } catch (error) {
+      console.error("Error processing image for identification:", error);
+      res.status(500).json({ error: "Failed to process image" });
+    }
+  });
+
+  // Process image from URL for product identification
+  app.post("/api/image-recognition/identify-url", async (req, res) => {
+    try {
+      const { imageUrl } = req.body;
+      if (!imageUrl) {
+        return res.status(400).json({ error: "Image URL is required" });
+      }
+
+      const result = await imageRecognitionService.processImageFromUrl(imageUrl);
+      
+      res.json({
+        success: result.success,
+        matches: result.matches,
+        extractedText: result.extractedText,
+        processingTime: result.processingTime,
+        error: result.error
+      });
+    } catch (error) {
+      console.error("Error processing image from URL:", error);
+      res.status(500).json({ error: "Failed to process image from URL" });
+    }
+  });
+
+  // Get image recognition service status
+  app.get("/api/image-recognition/status", async (req, res) => {
+    try {
+      const status = imageRecognitionService.getStatus();
+      const stats = await productImageManager.getStats();
+      
+      res.json({
+        recognitionService: status,
+        imageManagement: {
+          totalProducts: stats.totalProducts,
+          productsWithImages: stats.productsWithImages,
+          productsWithoutImages: stats.productsWithoutImages,
+          totalImages: stats.totalImages
+        }
+      });
+    } catch (error) {
+      console.error("Error getting image recognition status:", error);
+      res.status(500).json({ error: "Failed to get status" });
+    }
+  });
+
+  // Sync images with recognition service
+  app.post("/api/image-recognition/sync", async (req, res) => {
+    try {
+      const result = await productImageManager.syncWithRecognitionService();
+      res.json(result);
+    } catch (error) {
+      console.error("Error syncing with recognition service:", error);
+      res.status(500).json({ error: "Failed to sync with recognition service" });
+    }
+  });
+
+  // Reload recognition service
+  app.post("/api/image-recognition/reload", async (req, res) => {
+    try {
+      await imageRecognitionService.reload();
+      res.json({ success: true, message: "Recognition service reloaded" });
+    } catch (error) {
+      console.error("Error reloading recognition service:", error);
+      res.status(500).json({ error: "Failed to reload recognition service" });
+    }
+  });
+
+  // Bulk upload images for multiple products
+  app.post("/api/products/bulk-images", upload.array('images', 50), async (req, res) => {
+    try {
+      if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+        return res.status(400).json({ error: "No image files provided" });
+      }
+
+      const { productIds } = req.body;
+      if (!productIds) {
+        return res.status(400).json({ error: "Product IDs are required" });
+      }
+
+      const ids = JSON.parse(productIds);
+      if (!Array.isArray(ids) || ids.length !== req.files.length) {
+        return res.status(400).json({ error: "Number of product IDs must match number of images" });
+      }
+
+      const uploads = req.files.map((file, index) => ({
+        productId: ids[index],
+        imageBuffer: file.buffer,
+        filename: file.originalname,
+        mimeType: file.mimetype
+      }));
+
+      const result = await productImageManager.bulkUploadProductImages(uploads);
+      
+      res.json({
+        success: result.success,
+        failed: result.failed,
+        results: result.results,
+        message: `Uploaded ${result.success} images, ${result.failed} failed`
+      });
+    } catch (error) {
+      console.error("Error bulk uploading product images:", error);
+      res.status(500).json({ error: "Failed to bulk upload images" });
+    }
+  });
+
+  // Serve uploaded product images
+  app.use('/uploads/products', express.static(path.join(process.cwd(), 'uploads', 'products')));
 
   const httpServer = createServer(app);
   return httpServer;

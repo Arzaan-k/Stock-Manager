@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, decimal, timestamp, boolean, jsonb, pgEnum, unique, foreignKey } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -420,3 +420,89 @@ export type Grn = typeof grns.$inferSelect;
 export type InsertGrn = z.infer<typeof insertGrnSchema>;
 export type GrnItem = typeof grnItems.$inferSelect;
 export type InsertGrnItem = z.infer<typeof insertGrnItemSchema>;
+
+// Vendor Schema
+// Vendor status enum
+export const vendorStatus = pgEnum("vendor_status", ['active', 'inactive', 'pending', 'suspended']);
+
+// Vendor categories enum
+export const vendorCategory = pgEnum("vendor_category", ['admin', 'operation_services']);
+
+// Main vendors table
+export const vendors = pgTable("vendors", {
+  id: varchar("id").default(sql`gen_random_uuid()`).primaryKey(),
+  name: text("name").notNull(),
+  mainCategory: text("main_category").notNull(),
+  subcategory: text("subcategory").notNull(),
+  productType: text("product_type").notNull(),
+  productCode: text("product_code").notNull().unique(),
+  otherProducts: text("other_products"),
+  contactNumber: text("contact_number").notNull(),
+  email: text("email"),
+  location: text("location").notNull(),
+  address: text("address"),
+  city: text("city").notNull(),
+  state: text("state").notNull(),
+  zone: text("zone"),
+  status: text("status").notNull().default('pending'),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdBy: varchar("created_by").references(() => users.id),
+  notes: text("notes"),
+  rating: text("rating"),
+  bankDetails: jsonb("bank_details"),
+  documents: jsonb("documents"),
+  taxInfo: jsonb("tax_info"),
+});
+
+// Vendor products mapping table
+export const vendorProducts = pgTable("vendor_products", {
+  id: varchar("id").default(sql`gen_random_uuid()`).primaryKey(),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  productId: varchar("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  supplierCode: text("supplier_code"),
+  price: text("price"),
+  leadTimeDays: text("lead_time_days"),
+  minimumOrderQuantity: text("minimum_order_quantity"),
+  isPreferred: boolean("is_preferred").default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Vendor contacts table
+export const vendorContacts = pgTable("vendor_contacts", {
+  id: varchar("id").default(sql`gen_random_uuid()`).primaryKey(),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  designation: text("designation"),
+  phone: text("phone"),
+  email: text("email"),
+  isPrimary: boolean("is_primary").default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Vendor transactions
+export const vendorTransactions = pgTable("vendor_transactions", {
+  id: varchar("id").default(sql`gen_random_uuid()`).primaryKey(),
+  vendorId: varchar("vendor_id").notNull().references(() => vendors.id, { onDelete: "cascade" }),
+  transactionType: text("transaction_type").notNull(),
+  amount: text("amount").notNull(),
+  currency: text("currency").default('INR'),
+  referenceNumber: text("reference_number"),
+  description: text("description"),
+  transactionDate: timestamp("transaction_date").notNull().defaultNow(),
+  createdBy: varchar("created_by").references(() => users.id),
+  documents: jsonb("documents"),
+  status: text("status").default('completed'),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Vendor Types
+export type Vendor = typeof vendors.$inferSelect;
+export type InsertVendor = typeof vendors.$inferInsert;
+export type VendorProduct = typeof vendorProducts.$inferSelect;
+export type InsertVendorProduct = typeof vendorProducts.$inferInsert;
+export type VendorContact = typeof vendorContacts.$inferSelect;
+export type InsertVendorContact = typeof vendorContacts.$inferInsert;
+export type VendorTransaction = typeof vendorTransactions.$inferSelect;
+export type InsertVendorTransaction = typeof vendorTransactions.$inferInsert;

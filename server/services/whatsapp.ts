@@ -742,123 +742,133 @@ export class WhatsAppService {
       if (!messageHandled) {
         const inventoryCommand = await parseInventoryCommand(text, await storage.getProducts({}));
         if (inventoryCommand.action !== "unknown") {
-          switch (inventoryCommand.action) {
-            case "add_stock":
-              // Search for products by name first
-              const addProducts = inventoryCommand.productName ? 
-                await storage.searchProducts(inventoryCommand.productName) : [];
-              const addProd = addProducts.length > 0 ? addProducts[0] : null;
-              
-              if (!addProd) {
-              // Search for similar products using fuzzy search
-              const similarProducts = (await storage.getProducts({ search: inventoryCommand.productName })).slice(0, 5);
-              if (similarProducts.length > 0) {
-                state.pendingSelection = similarProducts.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name }));
-                await storage.updateConversation(conversation.id, { state });
-                let msg = `I couldn't find "${inventoryCommand.productName}". Did you mean one of these? Reply with the number:\n`;
-                similarProducts.forEach((p: any, i: number) => {
-                  msg += `${i + 1}. ${p.name} (SKU: ${p.sku}) | Avl: ${p.stockAvailable}\n`;
+          try {
+            switch (inventoryCommand.action) {
+              case "add_stock": {
+                // Search for products by name first
+                const addProducts = inventoryCommand.productName ? 
+                  await storage.searchProducts(inventoryCommand.productName) : [];
+                const addProd = addProducts.length > 0 ? addProducts[0] : null;
+                
+                if (!addProd) {
+                  // Search for similar products using fuzzy search
+                  const similarProducts = (await storage.getProducts({ search: inventoryCommand.productName })).slice(0, 5);
+                  if (similarProducts.length > 0) {
+                    state.pendingSelection = similarProducts.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name }));
+                    await storage.updateConversation(conversation.id, { state });
+                    let msg = `I couldn't find "${inventoryCommand.productName}". Did you mean one of these? Reply with the number:\n`;
+                    similarProducts.forEach((p: any, i: number) => {
+                      msg += `${i + 1}. ${p.name} (SKU: ${p.sku}) | Avl: ${p.stockAvailable}\n`;
+                    });
+                    await this.sendWhatsAppMessage(userPhone, msg);
+                    return;
+                  } else {
+                    await this.sendWhatsAppMessage(userPhone, `Product "${inventoryCommand.productName}" not found. Please check the spelling or try a different product.`);
+                    return;
+                  }
+                }
+                
+                const addQty = inventoryCommand.quantity || 1;
+                const newTotal = (addProd.stockTotal ?? 0) + addQty;
+                const newAvailable = (addProd.stockAvailable ?? 0) + addQty;
+                await storage.updateProduct(addProd.id, { stockTotal: newTotal, stockAvailable: newAvailable });
+                await storage.createStockMovement({ 
+                  productId: addProd.id, 
+                  action: "add", 
+                  quantity: addQty, 
+                  previousStock: addProd.stockAvailable, 
+                  newStock: newAvailable, 
+                  reason: "Added via WhatsApp NLP command" 
                 });
-                await this.sendWhatsAppMessage(userPhone, msg);
+                await this.sendWhatsAppMessage(userPhone, `✅ Added ${addQty} to ${addProd.name} (SKU: ${addProd.sku}). New available stock: ${newAvailable}`);
                 return;
-              } else {
-                await this.sendWhatsAppMessage(userPhone, `Product "${inventoryCommand.productName}" not found. Please check the spelling or try a different product.`);
+              }
+            
+              case "use_stock": {
+                // Search for products by name first
+                const useProducts = inventoryCommand.productName ?
+                  await storage.searchProducts(inventoryCommand.productName) : [];
+                const useProd = useProducts.length > 0 ? useProducts[0] : null;
+                
+                if (!useProd) {
+                  // Search for similar products using fuzzy search
+                  const similarProducts = (await storage.getProducts({ search: inventoryCommand.productName })).slice(0, 5);
+                  if (similarProducts.length > 0) {
+                    state.pendingSelection = similarProducts.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name }));
+                    await storage.updateConversation(conversation.id, { state });
+                    let msg = `I couldn't find "${inventoryCommand.productName}". Did you mean one of these? Reply with the number:\n`;
+                    similarProducts.forEach((p: any, i: number) => {
+                      msg += `${i + 1}. ${p.name} (SKU: ${p.sku}) | Avl: ${p.stockAvailable}\n`;
+                    });
+                    await this.sendWhatsAppMessage(userPhone, msg);
+                    return;
+                  } else {
+                    await this.sendWhatsAppMessage(userPhone, `Product "${inventoryCommand.productName}" not found. Please check the spelling or try a different product.`);
+                    return;
+                  }
+                }
+                
+                const useQty = inventoryCommand.quantity || 1;
+                if (useProd.stockAvailable < useQty) {
+                  await this.sendWhatsAppMessage(userPhone, `⚠️ Not enough stock! ${useProd.name} has only ${useProd.stockAvailable} available, but you requested ${useQty}.`);
+                  return;
+                }
+                
+                const newUsed = (useProd.stockUsed ?? 0) + useQty;
+                const newAvailableAfterUse = (useProd.stockAvailable ?? 0) - useQty;
+                await storage.updateProduct(useProd.id, { stockUsed: newUsed, stockAvailable: newAvailableAfterUse });
+                await storage.createStockMovement({ 
+                  productId: useProd.id, 
+                  action: "use", 
+                  quantity: -useQty, 
+                  previousStock: useProd.stockAvailable, 
+                  newStock: newAvailableAfterUse, 
+                  reason: "Used via WhatsApp NLP command" 
+                });
+                
+                let useMsg = `✅ Used ${useQty} from ${useProd.name} (SKU: ${useProd.sku}). New available stock: ${newAvailableAfterUse}`;
+                if (newAvailableAfterUse <= (useProd.minStockLevel ?? 0)) {
+                  useMsg += `\n⚠️ Stock is at/below minimum level (${useProd.minStockLevel ?? 0}). Consider restocking.`;
+                }
+                await this.sendWhatsAppMessage(userPhone, useMsg);
+                return;
+              }
+            
+              case "create_order": {
+                // For order creation, we'll use the existing cart system
+                const orderProd = inventoryCommand.productName ?
+                  await storage.getProductBySku(inventoryCommand.productName) : null;
+                if (!orderProd) {
+                  // Search for similar products
+                  const similarProducts = (await storage.getProducts({ search: inventoryCommand.productName })).slice(0, 5);
+                  if (similarProducts.length > 0) {
+                    state.pendingSelection = similarProducts.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name }));
+                    await storage.updateConversation(conversation.id, { state });
+                    let msg = `I couldn't find "${inventoryCommand.productName}". Did you mean one of these? Reply with the number and quantity (e.g., '1 x 2'):\n`;
+                    similarProducts.forEach((p: any, i: number) => {
+                      msg += `${i + 1}. ${p.name} (SKU: ${p.sku}) | Avl: ${p.stockAvailable}\n`;
+                    });
+                    await this.sendWhatsAppMessage(userPhone, msg);
+                    return;
+                  } else {
+                    await this.sendWhatsAppMessage(userPhone, `Product "${inventoryCommand.productName}" not found. Please check the spelling or try a different product.`);
+                    return;
+                  }
+                }
+                
+                const orderQty = inventoryCommand.quantity || 1;
+                state.cart = state.cart || [];
+                state.cart.push({ productId: orderProd.id, quantity: orderQty });
+                await storage.updateConversation(conversation.id, { state });
+                await this.sendWhatsAppMessage(userPhone, `Added ${orderQty} x ${orderProd.name} (SKU: ${orderProd.sku}) to your cart. Reply 'cart' to view or 'checkout' to proceed.`);
                 return;
               }
             }
-            
-            const addQty = inventoryCommand.quantity || 1;
-            const newTotal = (addProd.stockTotal ?? 0) + addQty;
-            const newAvailable = (addProd.stockAvailable ?? 0) + addQty;
-            await storage.updateProduct(addProd.id, { stockTotal: newTotal, stockAvailable: newAvailable });
-            await storage.createStockMovement({ 
-              productId: addProd.id, 
-              action: "add", 
-              quantity: addQty, 
-              previousStock: addProd.stockAvailable, 
-              newStock: newAvailable, 
-              reason: "Added via WhatsApp NLP command" 
-            });
-            await this.sendWhatsAppMessage(userPhone, `✅ Added ${addQty} to ${addProd.name} (SKU: ${addProd.sku}). New available stock: ${newAvailable}`);
+          } catch (error) {
+            console.error("Error handling inventory command:", error);
+            await this.sendWhatsAppMessage(userPhone, "Sorry, I had trouble processing your request. Please try again.");
             return;
-            
-          case "use_stock":
-            // Search for products by name first
-            const useProducts = inventoryCommand.productName ?
-              await storage.searchProducts(inventoryCommand.productName) : [];
-            const useProd = useProducts.length > 0 ? useProducts[0] : null;
-            
-            if (!useProd) {
-              // Search for similar products using fuzzy search
-              const similarProducts = (await storage.getProducts({ search: inventoryCommand.productName })).slice(0, 5);
-              if (similarProducts.length > 0) {
-                state.pendingSelection = similarProducts.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name }));
-                await storage.updateConversation(conversation.id, { state });
-                let msg = `I couldn't find "${inventoryCommand.productName}". Did you mean one of these? Reply with the number:\n`;
-                similarProducts.forEach((p: any, i: number) => {
-                  msg += `${i + 1}. ${p.name} (SKU: ${p.sku}) | Avl: ${p.stockAvailable}\n`;
-                });
-                await this.sendWhatsAppMessage(userPhone, msg);
-                return;
-              } else {
-                await this.sendWhatsAppMessage(userPhone, `Product "${inventoryCommand.productName}" not found. Please check the spelling or try a different product.`);
-                return;
-              }
-            }
-            
-            const useQty = inventoryCommand.quantity || 1;
-            if (useProd.stockAvailable < useQty) {
-              await this.sendWhatsAppMessage(userPhone, `⚠️ Not enough stock! ${useProd.name} has only ${useProd.stockAvailable} available, but you requested ${useQty}.`);
-              return;
-            }
-            
-            const newUsed = (useProd.stockUsed ?? 0) + useQty;
-            const newAvailableAfterUse = (useProd.stockAvailable ?? 0) - useQty;
-            await storage.updateProduct(useProd.id, { stockUsed: newUsed, stockAvailable: newAvailableAfterUse });
-            await storage.createStockMovement({ 
-              productId: useProd.id, 
-              action: "use", 
-              quantity: -useQty, 
-              previousStock: useProd.stockAvailable, 
-              newStock: newAvailableAfterUse, 
-              reason: "Used via WhatsApp NLP command" 
-            });
-            
-            let useMsg = `✅ Used ${useQty} from ${useProd.name} (SKU: ${useProd.sku}). New available stock: ${newAvailableAfterUse}`;
-            if (newAvailableAfterUse <= (useProd.minStockLevel ?? 0)) {
-              useMsg += `\n⚠️ Stock is at/below minimum level (${useProd.minStockLevel ?? 0}). Consider restocking.`;
-            }
-            await this.sendWhatsAppMessage(userPhone, useMsg);
-            return;
-            
-          case "create_order":
-            // For order creation, we'll use the existing cart system
-            const orderProd = inventoryCommand.productName ?
-              await storage.getProductBySku(inventoryCommand.productName) : null;
-            if (!orderProd) {
-              // Search for similar products
-              const similarProducts = (await storage.getProducts({ search: inventoryCommand.productName })).slice(0, 5);
-              if (similarProducts.length > 0) {
-                state.pendingSelection = similarProducts.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name }));
-                await storage.updateConversation(conversation.id, { state });
-                let msg = `I couldn't find "${inventoryCommand.productName}". Did you mean one of these? Reply with the number and quantity (e.g., '1 x 2'):\n`;
-                similarProducts.forEach((p: any, i: number) => {
-                  msg += `${i + 1}. ${p.name} (SKU: ${p.sku}) | Avl: ${p.stockAvailable}\n`;
-                });
-                await this.sendWhatsAppMessage(userPhone, msg);
-                return;
-              } else {
-                await this.sendWhatsAppMessage(userPhone, `Product "${inventoryCommand.productName}" not found. Please check the spelling or try a different product.`);
-                return;
-              }
-            }
-            
-            const orderQty = inventoryCommand.quantity || 1;
-            state.cart = state.cart || [];
-            state.cart.push({ productId: orderProd.id, quantity: orderQty });
-            await storage.updateConversation(conversation.id, { state });
-            await this.sendWhatsAppMessage(userPhone, `Added ${orderQty} x ${orderProd.name} (SKU: ${orderProd.sku}) to your cart. Reply 'cart' to view or 'checkout' to proceed.`);
-            return;
+          }
         }
       }
 

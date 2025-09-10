@@ -22,6 +22,7 @@ import {
   Calendar,
   MapPin,
   Clock,
+  Archive,
 } from "lucide-react";
 
 export default function Orders() {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -16,6 +16,8 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/currency";
+import * as XLSX from "xlsx";
+import { useDropzone } from "react-dropzone";
 import {
   Package,
   Plus,
@@ -24,7 +26,10 @@ import {
   Trash2,
   Upload,
   MapPin,
+  Users,
+  Image as ImageIcon,
 } from "lucide-react";
+import { ProductImageUpload } from "@/components/product-image-upload";
 
 const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
@@ -64,7 +69,69 @@ export default function Products() {
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [csvText, setCsvText] = useState("");
+  const [imageManagementProduct, setImageManagementProduct] = useState<any>(null);
   const { toast } = useToast();
+
+  // Import helpers
+  const [fileName, setFileName] = useState<string>("");
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [selectedSheet, setSelectedSheet] = useState<string>("");
+  const [workbook, setWorkbook] = useState<any>(null);
+  const onDrop = useMemo(
+    () =>
+      async (acceptedFiles: File[]) => {
+        const file = acceptedFiles[0];
+        if (!file) return;
+        setFileName(file.name);
+        const ext = file.name.toLowerCase().split(".").pop();
+        try {
+          if (ext === "csv") {
+            const text = await file.text();
+            setCsvText(text);
+            setSheetNames([]);
+            setSelectedSheet("");
+          } else if (["xlsx", "xls"].includes(ext || "")) {
+            const buf = await file.arrayBuffer();
+            const wb = XLSX.read(buf, { type: "array" });
+            setWorkbook(wb);
+            setSheetNames(wb.SheetNames);
+            const sheet = wb.SheetNames[0];
+            setSelectedSheet(sheet);
+            const ws = wb.Sheets[sheet];
+            const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+            const csv = XLSX.utils.sheet_to_csv(ws);
+            // If csv looks empty, fallback to building from json
+            const finalCsv = csv && csv.trim().length > 0 ? csv : XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(json));
+            setCsvText(finalCsv);
+          } else {
+            toast({ title: "Unsupported file type", description: "Please upload a CSV or XLSX file", variant: "destructive" });
+          }
+        } catch (e: any) {
+          toast({ title: "Failed to read file", description: e?.message || String(e), variant: "destructive" });
+        }
+      },
+    []
+  );
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, multiple: false, accept: { "text/csv": [".csv"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"], "application/vnd.ms-excel": [".xls"] } });
+
+  const handleSheetChange = (sheet: string) => {
+    setSelectedSheet(sheet);
+    if (workbook && workbook.Sheets[sheet]) {
+      const ws = workbook.Sheets[sheet];
+      const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const csv = XLSX.utils.sheet_to_csv(ws);
+      const finalCsv = csv && csv.trim().length > 0 ? csv : XLSX.utils.sheet_to_csv(XLSX.utils.json_to_sheet(json));
+      setCsvText(finalCsv);
+    }
+  };
+
+  const clearImportData = () => {
+    setCsvText("");
+    setFileName("");
+    setSheetNames([]);
+    setSelectedSheet("");
+    setWorkbook(null);
+  };
 
   const { data: products, isLoading } = useQuery({
     queryKey: ["/api/products", { search: searchTerm, category: selectedCategory }],
@@ -76,7 +143,7 @@ export default function Products() {
     onSuccess: (result) => {
       toast({ title: `Imported ${result?.imported || 0} products` });
       setIsImportDialogOpen(false);
-      setCsvText("");
+      clearImportData();
       queryClient.invalidateQueries({ queryKey: ["/api/products"] });
     },
     onError: () => toast({ title: "Failed to import CSV", variant: "destructive" }),
@@ -265,18 +332,55 @@ export default function Products() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <Label>Upload File (CSV/XLSX)</Label>
+                      <div
+                        {...getRootProps()}
+                        className={`border-2 border-dashed rounded-md p-6 text-center cursor-pointer ${isDragActive ? 'border-primary bg-primary/5' : 'border-muted'} `}
+                      >
+                        <input {...getInputProps()} />
+                        <p className="text-sm text-muted-foreground">
+                          {isDragActive ? 'Drop the file here...' : 'Drag & drop a CSV/XLSX file here, or click to select'}
+                        </p>
+                        {fileName && (
+                          <p className="text-xs mt-2">Selected: {fileName}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {sheetNames.length > 1 && (
+                      <div>
+                        <Label>Select Sheet</Label>
+                        <Select value={selectedSheet} onValueChange={handleSheetChange}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Choose sheet" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sheetNames.map((name) => (
+                              <SelectItem key={name} value={name}>{name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground mt-1">Changing sheets will automatically update the CSV content below.</p>
+                      </div>
+                    )}
+
                     <div>
                       <Label>CSV Content</Label>
                       <Textarea
                         className="min-h-48"
-                        placeholder="Paste CSV with headers here"
+                        placeholder="Paste CSV with headers here or upload a file above"
                         value={csvText}
                         onChange={(e) => setCsvText(e.target.value)}
                       />
                       <p className="text-xs text-muted-foreground mt-2">Expected headers include Group Code, Group Name, Crystal Part Code, List of Items, Photos, MFG Part Code, Importance, High Value, Maximum Usage Per Month, 6 Months Usage, Average per day, Lead Time days, Critical Factor - One Day, Units, Minimum Inventory Per Day, Maximum Inventory Per Day, CURRENT STOCK AVAILABLE.</p>
                     </div>
+
                     <div className="flex justify-end space-x-2">
-                      <Button variant="outline" onClick={() => setIsImportDialogOpen(false)}>Cancel</Button>
+                      <Button variant="outline" onClick={() => {
+                        setIsImportDialogOpen(false);
+                        clearImportData();
+                      }}>Cancel</Button>
                       <Button
                         onClick={() => importCsvMutation.mutate({ csv: csvText, warehouseId: form.getValues().warehouseId })}
                         disabled={importCsvMutation.isPending || !csvText.trim()}
@@ -601,6 +705,16 @@ export default function Products() {
                         />
                       </div>
 
+                      {/* Image Upload Section - Only show when editing existing product */}
+                      {editingProduct && (
+                        <div className="border-t pt-4">
+                          <ProductImageUpload 
+                            productId={editingProduct.id} 
+                            productName={editingProduct.name} 
+                          />
+                        </div>
+                      )}
+
                       <div className="flex justify-end space-x-3">
                         <Button
                           type="button"
@@ -628,6 +742,28 @@ export default function Products() {
                       </div>
                     </form>
                   </Form>
+                </DialogContent>
+              </Dialog>
+              
+              {/* Manage Images Dialog */}
+              <Dialog 
+                open={!!imageManagementProduct} 
+                onOpenChange={(open) => {
+                  if (!open) setImageManagementProduct(null);
+                }}
+              >
+                <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle>
+                      {imageManagementProduct ? `Manage Images: ${imageManagementProduct.name}` : 'Manage Images'}
+                    </DialogTitle>
+                  </DialogHeader>
+                  {imageManagementProduct && (
+                    <ProductImageUpload 
+                      productId={imageManagementProduct.id} 
+                      productName={imageManagementProduct.name} 
+                    />
+                  )}
                 </DialogContent>
               </Dialog>
             </div>
@@ -749,8 +885,27 @@ export default function Products() {
                               size="sm"
                               onClick={() => handleEdit(product)}
                               data-testid={`button-edit-product-${product.id}`}
+                              title="Edit Product"
                             >
                               <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => window.location.href = `/vendors?product=${product.id}`}
+                              data-testid={`button-vendors-product-${product.id}`}
+                              title="View Vendors"
+                            >
+                              <Users className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setImageManagementProduct(product)}
+                              data-testid={`button-images-product-${product.id}`}
+                              title="Manage Images"
+                            >
+                              <ImageIcon className="w-4 h-4" />
                             </Button>
                             <Button
                               variant="ghost"
@@ -758,6 +913,7 @@ export default function Products() {
                               onClick={() => handleDelete(product.id)}
                               className="text-destructive hover:text-destructive"
                               data-testid={`button-delete-product-${product.id}`}
+                              title="Delete Product"
                             >
                               <Trash2 className="w-4 h-4" />
                             </Button>
